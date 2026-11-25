@@ -1,0 +1,42 @@
+# Ask the editor for UTF-8 before anything has to check for it.
+#
+# tools/check_encoding.py catches a file that is already wrong, which is
+# the net underneath. This is the part that stops it happening: most
+# editors read this file, and a learner on Japanese Windows whose editor
+# would otherwise default to Shift-JIS gets UTF-8 without knowing there
+# was a decision to make.
+#
+# This repository is the template every learner's repository is generated
+# from, so it travels with them.
+#
+# Lost once, on 2026-08-27, when the repositories were restructured. It
+# was added by the same change that added the check, and both went.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# The learner's own files. Four spaces, matching the exercises they are
+# given and lib/startup.c.
+[*.{c,h}]
+indent_style = space
+indent_size = 4
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.{yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+# A trailing double space is a line break in Markdown, so do not strip it.
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

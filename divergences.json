@@ -1,0 +1,309 @@
+{
+  "_about": [
+    "Every established way the Renode simulation behaves differently from a real",
+    "ST NUCLEO-F401RE. This file is the only place these facts are written down.",
+    "The board view reads it to show a note beside an affected part, the",
+    "documentation's table is generated from it, and the verification sweep",
+    "asserts every entry whose status is 'fixed'.",
+    "",
+    "status is one of:",
+    "  permanent   - arises from something Renode does not model at all and can",
+    "                never be removed. The sweep asserts nothing for these.",
+    "  outstanding - could be removed but has not been. Not yet asserted.",
+    "  fixed       - the simulation now matches the board. The sweep MUST assert",
+    "                this every run, because a claim about running software goes",
+    "                stale without erring.",
+    "",
+    "hides_mistake marks a divergence where the simulator is more permissive than",
+    "the hardware, so incorrect code appears correct and the learner is told",
+    "nothing. Per ADR-0015 these require a warning in the material for the",
+    "exercise they affect. Recording them here is not enough:",
+    "the register is read by maintainers, and the person harmed is a learner who",
+    "has no reason to suspect working code.",
+    "",
+    "",
+    "exercises lists the exercises a row is relevant to, by directory name. It",
+    "answers \"would a learner doing this exercise want to know\", which is not",
+    "the question warn_in answers. warn_in names the files a warning is printed",
+    "into; a row can be relevant to an exercise and printed into nothing, as",
+    "button-polarity is for the exercise that reads the button. An empty list",
+    "means the row is true of the board rather than of any exercise. This field",
+    "is the one the learner's exercise page and the assistant both select on;",
+    "deriving it from a name is what ADR-0045's predecessor did, and it matched",
+    "nothing for the life of the course.",
+    "shows_up_in lists the part kinds, attachment types or board features where a",
+    "learner meets the divergence. The board view matches a part against it.",
+    "",
+    "renode_ja and board_ja state the same fact in Japanese, for a page shown in",
+    "Japanese. They are part of the row, not a translation kept elsewhere, so the",
+    "fact is still written down once. Change both languages together; the sweep",
+    "refuses a row that has only one."
+  ],
+  "divergences": [
+    {
+      "id": "pin-configuration-not-enforced",
+      "exercises": [
+        "01-blink-with-a-delay",
+        "02-blink-from-a-timer",
+        "03-change-the-interval",
+        "04-read-the-sensor"
+      ],
+      "renode": "A bus controller never consults the GPIO registers. The I2C model reads no port mode, no alternate function and no clock-enable bit, so a transfer succeeds even when the pins it supposedly uses were never configured at all. Verified 2026-09-25: firmware with every GPIOB write removed still read the Si7021 correctly",
+      "board": "A peripheral reaches a pin only through that pin. The port's clock must be enabled, the pin put into alternate-function mode, and the correct alternate function selected. Miss any of them and nothing reaches the bus",
+      "renode_ja": "バスコントローラは GPIO のレジスタを一切参照しません。I2C モデルはポートモードも代替機能もクロック有効ビットも読まないため、使うはずのピンを全く設定していなくても通信が成立します。2026-09-25 に確認: GPIOB への書き込みをすべて削除した firmware でも Si7021 を正しく読み取れました",
+      "board_ja": "周辺機能がピンに届くのは、そのピンを経由する場合だけです。ポートのクロックを有効にし、ピンを代替機能モードにし、正しい代替機能を選ぶ必要があります。どれか一つでも欠ければ、バスには何も届きません",
+      "source": "Observed in the feasibility work, 2026-09-25, on Renode 1.16.1. Renode's STM32F4_I2C model contains no reference to GPIO, pins or alternate functions. Hardware behaviour: RM0368 section 8 'General-purpose I/Os' and the alternate function table in DS10086",
+      "status": "permanent",
+      "hides_mistake": true,
+      "warn_in": [
+        "exercises/01-blink-with-a-delay/main.c",
+        "exercises/02-blink-from-a-timer/main.c",
+        "exercises/03-change-the-interval/main.c",
+        "exercises/04-read-the-sensor/main.c"
+      ],
+      "note": "Broader than 'open-drain-ignored', which is one instance of it. This one removes the whole pin-configuration step from validation: a learner can omit the clock, the mode and the alternate function and still pass here. It is the single largest gap between this simulation and a bench, and it affects every exercise that uses a peripheral rather than a bare GPIO.",
+      "shows_up_in": [
+        "i2c",
+        "spi",
+        "uart",
+        "gpio-out",
+        "gpio-in",
+        "SI7021",
+        "PB8",
+        "PB9"
+      ]
+    },
+    {
+      "id": "open-drain-ignored",
+      "exercises": [
+        "04-read-the-sensor"
+      ],
+      "renode": "The GPIO model ignores the output type register entirely. Writing OTYPER to select open drain produces 'Unhandled write to offset 0x4 ... Tags: OT8 (0x1), OT9 (0x1)' and changes nothing. An I2C transfer succeeds whether or not the bus pins were configured as open drain",
+      "board": "I2C is a wired-AND bus. Both SCL and SDA must be open drain with pull-ups, because devices signal by pulling the line low and release it to let it float high. Push-pull outputs contend and the bus does not work",
+      "renode_ja": "GPIO モデルは出力タイプレジスタを一切見ません。オープンドレインを選ぶために OTYPER に書き込んでも 'Unhandled write to offset 0x4 ... Tags: OT8 (0x1), OT9 (0x1)' が出るだけで、何も変わりません。バスのピンをオープンドレインに設定してもしなくても、I2C 通信は成功します",
+      "board_ja": "I2C はワイヤード AND のバスです。SCL と SDA の両方をオープンドレインにしてプルアップする必要があります。デバイスはラインを Low に引くことで信号を送り、離すと High に戻るためです。プッシュプル出力では衝突し、バスは動作しません",
+      "source": "Observed in the feasibility spike, 2026-09-25, on Renode 1.16.1. Hardware behaviour: RM0368 section 8.3 'I/O port control registers'; the I2C specification's wired-AND requirement",
+      "status": "permanent",
+      "hides_mistake": true,
+      "warn_in": [
+        "exercises/04-read-the-sensor/main.c"
+      ],
+      "note": "The sharpest trap on this board. A learner omits open-drain configuration, their sensor reading appears, nothing warns them, and the same program fails the first time they touch hardware - after the course, without us.",
+      "shows_up_in": [
+        "i2c",
+        "SI7021",
+        "gpio-out",
+        "PB8",
+        "PB9"
+      ]
+    },
+    {
+      "id": "sensor-value-quantisation",
+      "exercises": [
+        "04-read-the-sensor"
+      ],
+      "renode": "The SI70xx model stores temperature and humidity through a fixed-point conversion, so a value read back differs slightly from the value set. Setting 25.00 C and reading it from firmware produced 24.99 C",
+      "board": "A real Si7021 also quantises, but to its own resolution and with its own error, which is not the same rounding the model performs",
+      "renode_ja": "SI70xx モデルは温度と湿度を固定小数点に変換して保持するため、読み出した値は設定した値とわずかに異なります。25.00 C を設定して firmware から読むと 24.99 C になりました",
+      "board_ja": "実際の Si7021 も量子化しますが、その分解能と誤差は固有のもので、モデルが行う丸めとは一致しません",
+      "source": "Observed in the feasibility spike, 2026-09-25: sensor set to 25, firmware printed 'RAW=26796 TEMP_C_X100=2499'. Model source: renode-infrastructure SI70xx.cs, which stores (value + 46.85) * 65536 / 175.72",
+      "status": "permanent",
+      "hides_mistake": true,
+      "warn_in": [
+        "exercises/04-read-the-sensor/main.c"
+      ],
+      "note": "Any check comparing a reading for equality passes or fails on a rounding artefact rather than on whether the code is correct. Exercises must compare against a tolerance.",
+      "shows_up_in": [
+        "i2c",
+        "SI7021"
+      ]
+    },
+    {
+      "id": "si7021-not-fitted",
+      "exercises": [
+        "04-read-the-sensor"
+      ],
+      "renode": "Nothing sits on I2C1. A sensor is a part the learner adds from the board view's palette, which writes it into their own board.repl; until they do, a read of the bus finds nothing, exactly as on the board",
+      "board": "A real NUCLEO-F401RE carries no sensor. To read one you wire it to the Arduino connector yourself, at D15 for SCL and D14 for SDA",
+      "renode_ja": "I2C1 には何も接続されていません。センサはボード画面のパレットから受講者が追加する部品で、追加すると自分の board.repl に書き込まれます。追加するまでは、実機と同じくバスを読んでも何も見つかりません",
+      "board_ja": "実際の NUCLEO-F401RE にはセンサは搭載されていません。読むには Arduino コネクタの D15 を SCL、D14 を SDA として自分で配線します",
+      "source": "UM1724, 'STM32 Nucleo-64 boards', lists the fitted components: two user LEDs, one user button, one reset button and the ST-LINK. No sensor. boards/nucleo_f401re.repl declared si7021: Sensors.SI70xx @ i2c1 0x40 until 2026-09-29 and no longer declares anything on the bus.",
+      "status": "fixed",
+      "fixed_by": "boards/nucleo_f401re.repl declares nothing on i2c1. The board view's palette offers SI7021 at 0x40, and adding it writes the declaration into the learner's own board.repl. The setup self-test brings its own sensor in verify/sensor.repl, because it runs before the learner has opened the board view.",
+      "hides_mistake": false,
+      "note": "The board used to declare the sensor so that the fourth exercise had something to read. It meant every learner's board answered a part the board in their hand does not have, and nothing said so until they tried the same firmware on real hardware. Adding it from the palette is what wiring one to the header actually is, so the exercise now begins by doing that.",
+      "shows_up_in": [
+        "SI7021",
+        "si7021"
+      ]
+    },
+    {
+      "id": "static-timer-clocks",
+      "exercises": [
+        "02-blink-from-a-timer",
+        "03-change-the-interval"
+      ],
+      "renode": "Peripheral clocks are not derived from the RCC and PLL registers. Each timer carries a frequency declared in the platform description, and programming the clock tree does not change how fast it counts",
+      "board": "Timer clocks follow the clock tree. The rate depends on the oscillator, the PLL configuration and the bus prescalers the program sets up, and a mistake there changes every timing in the system",
+      "renode_ja": "周辺クロックは RCC と PLL のレジスタから導出されません。各タイマーはプラットフォーム定義に書かれた周波数を持ち、クロックツリーを設定してもカウント速度は変わりません",
+      "board_ja": "タイマーのクロックはクロックツリーに従います。速度は発振器、PLL の設定、バスのプリスケーラによって決まり、そこを誤ればシステム全体のタイミングが変わります",
+      "source": "platforms/cpus/stm32f4.repl declares a literal frequency on each Timers.STM32_Timer. Hardware behaviour: RM0368 section 6 'Reset and clock control'",
+      "status": "permanent",
+      "shows_up_in": [
+        "timer",
+        "systick"
+      ]
+    },
+    {
+      "id": "declared-clock-rate",
+      "exercises": [
+        "02-blink-from-a-timer",
+        "03-change-the-interval"
+      ],
+      "renode": "The generic STM32F4 platform declares every timer at 10 MHz and SysTick at 72 MHz. The board description overrides the timers the F401RE has, and SysTick, to 84 MHz",
+      "board": "In the standard configuration an STM32F401RE runs at 84 MHz, and its general-purpose timers receive 84 MHz",
+      "renode_ja": "汎用の STM32F4 プラットフォームは全タイマーを 10 MHz、SysTick を 72 MHz と宣言しています。本ボード定義では F401RE が持つタイマーと SysTick を 84 MHz に上書きしています",
+      "board_ja": "標準的な構成では STM32F401RE は 84 MHz で動作し、汎用タイマーには 84 MHz が供給されます",
+      "source": "Override verified 2026-09-25: sysbus.timer2 Frequency reports 0x501BD00. Hardware behaviour: RM0368 section 6.2, APB1 timer clock doubling",
+      "status": "fixed",
+      "fixed_by": "boards/nucleo_f401re.repl declares 84000000 on TIM1-5 and TIM9-11 and on the NVIC's systickFrequency",
+      "note": "Fixed in the sense that the number now matches the real part, so datasheet arithmetic produces the intended interval. It remains an assumption about how the learner configures the clock tree, not a consequence of it - see static-timer-clocks, which this does not fix. ADR-0013.",
+      "shows_up_in": [
+        "timer",
+        "systick"
+      ]
+    },
+    {
+      "id": "superset-peripherals",
+      "exercises": [
+        "01-blink-with-a-delay",
+        "02-blink-from-a-timer",
+        "03-change-the-interval",
+        "04-read-the-sensor"
+      ],
+      "renode": "The generic STM32F4 platform declares peripherals the F401RE does not carry: an Ethernet MAC, CAN1 and CAN2, GPIO ports F through K, UART4 and UART5, an external memory controller, and TIM6, TIM7, TIM8, TIM12, TIM13 and TIM14. Overriding cannot remove them, so they remain usable",
+      "board": "An STM32F401RE has GPIO ports A to E and H, three USARTs, no CAN, no Ethernet, no external memory controller, and timers TIM1 to TIM5 and TIM9 to TIM11",
+      "renode_ja": "汎用の STM32F4 プラットフォームは F401RE が持たない周辺機器を宣言しています。Ethernet MAC、CAN1 と CAN2、GPIO ポート F から K、UART4 と UART5、外部メモリコントローラ、そして TIM6、TIM7、TIM8、TIM12、TIM13、TIM14 です。上書きでは削除できないため、使用できてしまいます",
+      "board_ja": "STM32F401RE が持つのは GPIO ポート A から E と H、USART 3 系統、タイマー TIM1 から TIM5 と TIM9 から TIM11 です。CAN、Ethernet、外部メモリコントローラはありません",
+      "source": "platforms/cpus/stm32f4.repl peripheral declarations, read 2026-09-25. Hardware: STM32F401xD/xE datasheet DS10086, block diagram and pinout",
+      "status": "permanent",
+      "hides_mistake": true,
+      "warn_in": [
+        "exercises/README.md",
+        "exercises/README.ja.md"
+      ],
+      "note": "A program using any of these runs here and cannot run on the real board. ADR-0012 accepted this as the cost of inheriting an upstream description rather than forking every peripheral model.",
+      "shows_up_in": [
+        "gpio-out",
+        "gpio-in",
+        "uart",
+        "can",
+        "ethernet",
+        "timer"
+      ]
+    },
+    {
+      "id": "button-polarity",
+      "exercises": [
+        "03-change-the-interval"
+      ],
+      "renode": "Miscellaneous.Button drives its pin high while pressed",
+      "board": "B1 is active low. A pull-up holds PC13 high at rest, and the normally-open switch shorts it to ground when pressed",
+      "renode_ja": "Miscellaneous.Button は押している間ピンを High にします",
+      "board_ja": "B1 はアクティブ Low です。プルアップが通常時に PC13 を High に保ち、ノーマルオープンのスイッチが押されると GND に短絡させます",
+      "source": "UM1724 'STM32 Nucleo-64 boards', user button B1 on PC13. Verified 2026-09-25: firmware read 1 at rest, 0 while pressed",
+      "status": "fixed",
+      "fixed_by": "boards/nucleo_f401re.repl sets invert: true on the board's button",
+      "shows_up_in": [
+        "gpio-in",
+        "BUTTON",
+        "B1",
+        "PC13"
+      ]
+    },
+    {
+      "id": "oversized-flash",
+      "exercises": [],
+      "renode": "The generic STM32F4 platform declares 2 MB of flash",
+      "board": "An STM32F401RE has 512 KB of flash",
+      "renode_ja": "汎用の STM32F4 プラットフォームはフラッシュを 2 MB と宣言しています",
+      "board_ja": "STM32F401RE のフラッシュは 512 KB です",
+      "source": "STM32F401xD/xE datasheet DS10086. Verified 2026-09-25: sysbus.flash Size reports 0x80000",
+      "status": "fixed",
+      "fixed_by": "boards/nucleo_f401re.repl sets flash size to 0x80000",
+      "note": "Left uncorrected, a program could exceed the real device's flash and link without error, failing only when someone tried to programme a real board.",
+      "shows_up_in": [
+        "memory",
+        "flash"
+      ]
+    },
+    {
+      "id": "oversized-sram",
+      "exercises": [],
+      "renode": "The generic STM32F4 platform declares 256 KB of SRAM",
+      "board": "An STM32F401RE has 96 KB of SRAM",
+      "renode_ja": "汎用の STM32F4 プラットフォームは SRAM を 256 KB と宣言しています",
+      "board_ja": "STM32F401RE の SRAM は 96 KB です",
+      "source": "STM32F401xD/xE datasheet DS10086. Verified 2026-09-25: sysbus.sram Size reports 0x18000",
+      "status": "fixed",
+      "fixed_by": "boards/nucleo_f401re.repl sets sram size to 0x18000",
+      "shows_up_in": [
+        "memory",
+        "sram"
+      ]
+    },
+    {
+      "id": "missing-fpu",
+      "exercises": [],
+      "renode": "The generic STM32F4 platform declares the core as cortex-m4, which has no floating-point unit",
+      "board": "An STM32F401RE has a Cortex-M4 with a single-precision floating-point unit",
+      "renode_ja": "汎用の STM32F4 プラットフォームはコアを cortex-m4 と宣言しており、浮動小数点ユニットがありません",
+      "board_ja": "STM32F401RE は単精度浮動小数点ユニットを持つ Cortex-M4 です",
+      "source": "STM32F401xD/xE datasheet DS10086. Verified 2026-09-25: sysbus.cpu Model reports cortex-m4f",
+      "status": "fixed",
+      "fixed_by": "boards/nucleo_f401re.repl sets cpuType to cortex-m4f",
+      "note": "Left uncorrected, code compiled for the real part's hard-float ABI faults on instructions the declared core does not have.",
+      "shows_up_in": [
+        "cpu"
+      ]
+    },
+    {
+      "id": "cpu-speed-not-from-the-clock-tree",
+      "exercises": [
+        "01-blink-with-a-delay",
+        "02-blink-from-a-timer",
+        "03-change-the-interval"
+      ],
+      "status": "permanent",
+      "renode": "The processor executes a flat 100 million instructions per second, declared as PerformanceInMips and unrelated to the 84 MHz this board describes. There is no pipeline, no flash wait state and no cache, so every instruction costs the same. A delay written as a counting loop therefore takes a length of time that does not follow from the clock configuration at all. Measured 2026-09-28: the loop advances about 18 million iterations per second of simulated time. The first exercise's ABOUT_ONE_SECOND is 18,000,000 and so does take about a second -- a constant chosen to match this simulator's fixed rate, not one derived from the clock configuration",
+      "renode_ja": "プロセッサは毎秒 1 億命令という固定速度で実行します。これは PerformanceInMips として宣言された値であり、このボードが示す 84 MHz とは無関係です。パイプラインもフラッシュのウェイトステートもキャッシュもないため、すべての命令が同じ時間で終わります。したがってカウントループで書いた遅延の長さは、クロック設定から導かれません。2026-09-28 に測定: ループはシミュレーション時間で毎秒およそ 1,800 万回進みます。実装課題1 の ABOUT_ONE_SECOND は 18,000,000 であり、実際におよそ 1 秒になります。これはこのシミュレータの固定速度に合わせて選んだ値であり、クロック設定から導かれたものではありません",
+      "board": "Instruction timing follows the core clock, and the core clock follows the oscillator, the PLL and the bus prescalers the program sets up. It is also affected by flash wait states and by where the code sits in memory, so a counting loop is approximate on hardware too -- but it is approximate around a figure the clock determines",
+      "board_ja": "命令のタイミングはコアクロックに従い、コアクロックは発振器、PLL、プログラムが設定するバスプリスケーラに従います。フラッシュのウェイトステートやコードの配置場所にも影響されるため、実機でもカウントループは正確ではありません。ただし実機では、クロックが決める値の周辺で不正確になります",
+      "shows_up_in": [
+        "timer",
+        "delay",
+        "gpio-out"
+      ],
+      "source": "Measured 2026-09-28 on Renode 1.16.1: sysbus.cpu PerformanceInMips reports 0x64 (100). Sampling the LED pin while running the first exercise's reference solution gave a half-cycle of 0.111 s over 1 s of simulated time. Hardware behaviour: RM0368 section 6 and the flash latency table in section 3.4"
+    },
+    {
+      "id": "peripheral-reads-are-slow-to-simulate",
+      "exercises": [
+        "03-change-the-interval"
+      ],
+      "status": "permanent",
+      "hides_mistake": false,
+      "renode": "Reading a peripheral register costs far more simulated-machine effort than reading a variable, because it leaves the translated code and goes through the system bus. A loop that does nothing but read one pin therefore runs about a hundred times slower than the same loop without it. Measured 2026-09-28: polling the button in a tight main loop simulated one second of board time in 156 seconds of real time, against 1.4 seconds for the same program using an interrupt, and 5 seconds for the same polling loop with a short delay between reads",
+      "renode_ja": "周辺レジスタの読み出しは、変数の読み出しに比べて大きなコストがかかります。変換済みコードを抜けてシステムバスを経由するためです。そのため、ピンを読むだけのループは、読み出しを含まない同じループの約 100 倍遅く動きます。2026-09-28 に測定: main ループでボタンを詰めてポーリングした場合、ボード時間 1 秒のシミュレーションに実時間 156 秒を要しました。同じ動作を割り込みで書いた場合は 1.4 秒、読み出しの間に短い遅延を入れたポーリングでは 5 秒でした",
+      "board": "Reading a port register is a single load instruction, a few clock cycles, and no slower than reading a variable in RAM. A tight polling loop is wasteful of power on hardware but costs no time",
+      "board_ja": "ポートレジスタの読み出しはロード命令ひとつ、数クロックであり、RAM 上の変数を読むのと比べて遅くはありません。詰めたポーリングループは実機では電力の無駄ですが、時間の無駄にはなりません",
+      "shows_up_in": [
+        "gpio-in",
+        "polling",
+        "PC13"
+      ],
+      "note": "This one is about the simulation's speed rather than its behaviour, and it is recorded because the third exercise tells a learner that polling is 'simple, and fine here'. It is correct, and on real hardware it is fine -- but written as a tight loop it makes the simulator so slow that a one-second blink appears about once every two and a half minutes, which reads as broken code. A short delay between reads removes the problem entirely.",
+      "source": "Measured 2026-09-28 on Renode 1.16.1, sampling the LED pin while running three reference implementations of the third exercise: tight polling 156x slower than real time, polling with a delay 2.5x, EXTI 1.4x"
+    }
+  ]
+}

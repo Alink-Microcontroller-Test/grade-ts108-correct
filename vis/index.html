@@ -1,0 +1,1974 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>ST NUCLEO-F401RE — Renode board view</title>
+<style>
+  :root { --line:#1a72d0; --ink:#0b2d4d; --paper:#f7f9fb; --dim:#c9dcef; --rail:#c0392b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+         font:14px/1.6 "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI",
+              Meiryo, system-ui, sans-serif; }
+  header { display:flex; align-items:center; justify-content:space-between;
+           padding:18px 28px; border-bottom:1px solid var(--dim); background:#fff; }
+  header .brand { font-weight:700; letter-spacing:.16em; font-size:15px; color:var(--line); }
+  header .left { display:flex; align-items:center; gap:18px; }
+  header .board { font-weight:700; letter-spacing:.10em; font-size:13px; }
+  header .lang { font-size:12px; text-decoration:none; color:var(--line);
+                 border:1px solid var(--dim); border-radius:4px; padding:4px 10px;
+                 font-weight:600; margin-left:14px; }
+  header .lang:hover { background:#eef4fa; }
+  main { display:grid; grid-template-columns:1fr 340px; gap:24px; padding:24px 28px; align-items:start; }
+  .canvas { background:#fff; border:1px solid var(--dim); border-radius:4px; padding:16px; }
+  .panel { display:flex; flex-direction:column; gap:16px; }
+  .card { background:#fff; border:1px solid var(--dim); border-radius:4px; padding:14px 16px; }
+  .card h2 { margin:0 0 10px; font-size:12px; letter-spacing:.12em;
+             text-transform:uppercase; color:var(--line); }
+  #uart { font-family:Consolas,"Courier New",monospace; font-size:12px;
+          white-space:pre-wrap; word-break:break-all; height:180px; overflow-y:auto;
+          background:#0b1620; color:#d7e6f5; border-radius:3px; padding:10px; }
+  /* Nothing printed yet, said rather than shown as a black rectangle. An
+     empty panel and a dead link look identical, and the learner who needs to
+     tell them apart is the one whose program should be printing and is not. */
+  #uart.empty { color:#7d94a8; font-style:italic; }
+  .leds { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .leds li { display:flex; align-items:center; gap:10px; font-family:Consolas,monospace; font-size:12px; }
+  .swatch { width:12px; height:12px; border-radius:50%; border:1px solid var(--dim);
+            display:inline-block; }
+  button { width:100%; padding:10px; font:inherit; font-weight:600; color:#fff;
+           background:var(--line); border:0; border-radius:3px; cursor:pointer; }
+  button:active { background:#0f5aa8; }
+  .status { font-size:12px; }
+  .status b { font-family:Consolas,monospace; }
+
+  svg [tabindex]:focus, svg [tabindex]:focus-visible {
+    outline: 3px solid #1668c1; outline-offset: 2px;
+  }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 3px solid #1668c1; outline-offset: 2px;
+  }
+
+  /* The lit parts glow, and an LED under a timer blinks. Someone who has asked
+     their system for less motion should not be given a flashing board. */
+  @media (prefers-reduced-motion: reduce) {
+    #board [filter] { filter: none !important; }
+  }
+
+  .sensor { display:flex; flex-direction:column; gap:4px; margin-top:10px; font-size:12px; }
+  .sensor b { font-family:Consolas,monospace; }
+  .sensor input, .sensor select { width:100%; font:inherit; font-size:13px; }
+  .sensor select, .sensor input[type=text] { padding:5px 8px; border:1px solid var(--dim);
+            border-radius:4px; background:#fff; color:var(--ink); }
+  #added-details > summary { cursor:pointer; font-weight:600; font-size:13px;
+    color:#0b2d4d; padding:2px 0; }
+  #added-details[open] > summary { margin-bottom:8px; }
+  details.part > summary { cursor:pointer; font-family:Consolas,monospace;
+    font-size:12px; font-weight:600; color:#0b2d4d; padding:3px 0; }
+  details.part { border-top:1px solid #e3e9ee; padding-top:4px; }
+
+  /* Tracing aid: hover or focus one part and every other part's wiring fades,
+     so a single run can be followed across the board. Only the wiring fades --
+     dimming a whole part would fade the LED you are pressing a switch to
+     watch, which is the one thing you were looking at. */
+  #added-parts:hover > g:not(:hover) .wires { opacity: 0.15; }
+  #added-parts .wires { transition: opacity .12s ease; }
+  @media (prefers-reduced-motion: reduce) {
+    #added-parts .wires { transition: none; }
+  }
+
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:#5c7893;
+            margin:0 0 10px; align-items:center; }
+  code { font-family:Consolas,monospace; }
+
+  /* A fact about the simulation, not an error the learner caused, so it is
+     warned rather than alarmed. */
+  .note-card { background:#fdf8ec; border-color:#e6d9b8; }
+  .note-card p { color:#5a4a22; margin:0; line-height:1.55; }
+  .warn { color:#8a3128; }
+  .good { color:#1f6b3a; }
+  /* The build's output, in the same family as the serial log: it is machine
+     text and reads better as such. Scrolls rather than truncates -- one
+     missing semicolon can produce a page of cascading errors, and the line
+     that matters is not reliably the first. */
+  #build-output, #env-output { font-family:Consolas,"Courier New",monospace; font-size:12px;
+          white-space:pre-wrap; word-break:break-all; max-height:260px;
+          overflow-y:auto; background:#0b1620; color:#d7e6f5;
+          border-radius:3px; padding:10px; margin:10px 0 0; }
+  /* Said in a second way as well as the disabled attribute: a greyed button
+     that still looks pressable is a button somebody presses twice. */
+  button:disabled { background:#8aa3b8; cursor:progress; }
+  /* The second action, and deliberately the quieter one. Building your own
+     code is what a learner does all day; fetching what GitHub built is for
+     when something does not add up. */
+  button.secondary { background:#fff; color:var(--line);
+          border:1px solid var(--line); font-weight:500; }
+  button.secondary:disabled { background:#f4f8fb; color:#8aa3b8;
+          border-color:var(--dim); cursor:not-allowed; }
+  /* The route that needs no credential. A label wrapping a hidden file input,
+     so it is clickable and reachable by keyboard without any script, and a
+     drop target as well. */
+  #drop-zone { display:block; margin-top:8px; padding:12px; text-align:center;
+          font-size:12px; color:#5c7893; cursor:pointer;
+          border:1px dashed var(--dim); border-radius:3px; }
+  #drop-zone:hover, #drop-zone:focus-visible { background:#f4f8fb; }
+  #drop-zone.over { background:#eef4fa; border-color:var(--line);
+          color:var(--line); }
+  .good { color:#2c5f2c; }
+
+  @media (max-width: 1100px) {
+    main { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="left">
+    <span class="brand">RENODE</span>
+  </span>
+  <span>
+    <span class="board">ST NUCLEO-F401RE &middot; STM32F401RET6</span>
+    <a class="lang" id="lang-toggle" href="?lang=en">English</a>
+  </span>
+</header>
+
+<main>
+  <div class="canvas">
+    <p class="legend" id="legend"></p>
+    <svg id="board" viewBox="0 0 1500 900" width="100%" role="img"
+         aria-label="ST NUCLEO-F401RE, drawn from the live pin map">
+      <defs>
+        <filter id="glow" x="-200%" y="-200%" width="500%" height="500%">
+          <feGaussianBlur stdDeviation="3" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <linearGradient id="metal" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#f2f4f6"/>
+          <stop offset="50%" stop-color="#c3ccd4"/>
+          <stop offset="100%" stop-color="#8e9aa4"/>
+        </linearGradient>
+        <!-- The die on a breakout board. The reference page this was ported
+             from referred to url(#chip) without ever defining it, so every
+             sensor was drawn with a transparent hole where its chip belongs;
+             tests/sweep.py now fails on a reference that resolves to nothing. -->
+        <linearGradient id="chip" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3a4048"/>
+          <stop offset="100%" stop-color="#1d2126"/>
+        </linearGradient>
+      </defs>
+
+      <!-- The board sits in the middle so that a part can be drawn on the side
+           its wire actually leaves from. Everything belonging to the board is
+           inside this one group, so the shift is a single number rather than
+           several dozen renumbered coordinates. -->
+      <g id="board-shift" transform="translate(430,0)">
+
+      <!-- the PCB: portrait and green, as a NUCLEO-64 actually is, with the
+           USB socket at the top -- the orientation UM1724 draws it in and the
+           one the connector tables are numbered in -->
+      <rect x="120" y="30" width="530" height="810" rx="8" fill="#15613f"/>
+      <rect x="120" y="30" width="530" height="810" rx="8" fill="none"
+            stroke="#0d4229" stroke-width="2"/>
+
+      <!-- CN1, the mini-USB socket the ST-LINK and the board's power come in on -->
+      <rect x="352" y="12" width="66" height="30" rx="3" fill="url(#metal)"/>
+      <text x="385" y="-2" text-anchor="middle" font-size="9"
+            font-family="Consolas,monospace" fill="#5c7893">CN1 &middot; USB</text>
+
+      <!-- The ST-LINK/V2-1, which is a separate design on the same panel.
+           Drawn with its break-off line because the board really does snap
+           apart there, and a learner who spots the perforation should find it
+           explained rather than hidden. -->
+      <text x="385" y="100" text-anchor="middle" font-size="13" font-weight="700"
+            font-family="Consolas,monospace" fill="#eaf5ee">ST-LINK/V2-1</text>
+      <text x="385" y="118" text-anchor="middle" font-size="9"
+            font-family="Consolas,monospace" fill="#a9d2b8">debug + virtual COM port</text>
+      <path d="M125 190 H645" stroke="#9ec6ac" stroke-width="1.5"
+            stroke-dasharray="3 5" fill="none" opacity="0.8"/>
+
+      <!-- silkscreen -->
+      <text x="385" y="226" text-anchor="middle" font-size="22" font-weight="700"
+            font-family="Consolas,monospace" fill="#f2faf5">NUCLEO-F401RE</text>
+
+      <!-- the LQFP64 package -->
+      <g id="package">
+        <rect x="320" y="330" width="130" height="130" rx="4" fill="#8a9199" stroke="#5c646c"/>
+        <rect x="328" y="338" width="114" height="114" rx="3" fill="#9aa2aa"/>
+        <circle cx="340" cy="350" r="5.5" fill="#6d747b"/>
+        <text x="385" y="388" text-anchor="middle" font-size="10" font-weight="700"
+              font-family="Consolas,monospace" fill="#2b3138">STM32F401RET6</text>
+        <text x="385" y="404" text-anchor="middle" font-size="8"
+              font-family="Consolas,monospace" fill="#2b3138">LQFP64 &middot; 84 MHz</text>
+        <text x="385" y="418" text-anchor="middle" font-size="8"
+              font-family="Consolas,monospace" fill="#2b3138">512 KB flash &middot; 96 KB SRAM</text>
+        <text x="385" y="478" text-anchor="middle" font-size="8"
+              font-family="Consolas,monospace" fill="#bfe3cd">U5</text>
+      </g>
+
+      <!-- header pins, the components, and anything added -->
+      <g id="pin-grid"></g>
+      <g id="board-parts"></g>
+      </g>
+
+      <g id="added-parts"></g>
+      <text id="added-empty" x="1330" y="240" text-anchor="middle" font-size="11"
+            font-family="Consolas,monospace" fill="#5c7893"></text>
+    </svg>
+  </div>
+
+  <div class="panel">
+    <!-- Above everything, because if this is wrong nothing below it will
+         work and the learner is the person least able to work out why. The
+         board still comes up either way: a failed check reports, it does not
+         withhold. -->
+    <div class="card" id="env-card" hidden>
+      <h2 data-t="env.title"></h2>
+      <p class="status" id="env-state" role="status" aria-live="polite"></p>
+      <details id="env-details" hidden>
+        <summary data-t="env.details"></summary>
+        <pre id="env-output"></pre>
+      </details>
+    </div>
+
+    <!-- First, because it is now the thing a learner came to do. Everything
+         below it describes the board; this is how they put their own code on
+         it. -->
+    <div class="card" id="build-card">
+      <h2 data-t="build.title"></h2>
+      <!-- What the board is running, right now. The board comes up running
+           the setup self-test, and exercise 1 is also a blinking LED, so
+           without this a learner can reasonably believe the course ran their
+           code before they wrote any. -->
+      <p class="status" id="build-running" role="status" aria-live="polite"></p>
+      <!-- Which commit a fetched build came from, and whether that is the
+           work the learner currently has. Hidden while they are running
+           their own build, where there is no commit to speak of. -->
+      <p class="status" id="build-from" role="status" aria-live="polite" hidden></p>
+      <label class="sensor">
+        <span data-t="build.exercise"></span>
+        <select id="build-pick"></select>
+      </label>
+      <button id="build-btn" style="margin-top:10px" data-t="build.button"></button>
+      <button id="fetch-btn" class="secondary" style="margin-top:6px"
+              data-t="build.fetchbutton"></button>
+      <!-- Why fetching is unavailable, where it is. Said rather than left as
+           a greyed-out control: a learner cannot ask about something that
+           merely looks switched off. -->
+      <p class="status warn" id="fetch-note" hidden></p>
+      <!-- The exit code's meaning, before any compiler text. "Your code did
+           not compile" and "this is not a problem with your code" need
+           opposite responses, and the build already knows which it is. -->
+      <p class="status" id="build-outcome" role="status" aria-live="polite"></p>
+      <pre id="build-output" tabindex="0" hidden></pre>
+      <!-- Hand over a build you downloaded yourself. Needs no credential:
+           your browser is already signed in to GitHub. Takes the .elf from a
+           Release, or the .zip an Actions run gives you, unpacked here. -->
+      <label id="drop-zone" tabindex="0">
+        <span data-t="build.drop"></span>
+        <input id="drop-file" type="file" accept=".elf,.zip" hidden>
+      </label>
+    </div>
+
+    <div class="card">
+      <h2 data-t="card.link"></h2>
+      <p class="status"><span data-t="card.status"></span> <b id="ws-state"></b></p>
+      <!-- A short hash of the plugin the simulator is actually running. It is
+           shown rather than kept, because the only way to tell a page that is
+           out of date is to compare this against vis/vis_f401re.py on disk,
+           and nothing else on screen would look wrong. -->
+      <p class="status" style="color:#5c7893"><span data-t="card.plugin"></span>
+        <b id="plugin-version">&mdash;</b></p>
+    </div>
+
+    <div class="card">
+      <h2 data-t="serial.title"></h2>
+      <div id="uart" role="log" aria-live="polite"></div>
+    </div>
+
+    <div class="card">
+      <h2 data-t="onboard.title"></h2>
+      <div id="onboard-list"></div>
+    </div>
+
+    <div class="card">
+      <h2 data-t="add.title"></h2>
+      <p class="status" id="add-what" style="color:#5c7893;margin:0 0 4px"></p>
+      <label class="sensor">
+        <span data-t="add.part"></span>
+        <select id="add-kind"></select>
+      </label>
+      <label class="sensor">
+        <span><span data-t="add.where"></span> <b id="loc-hint" style="font-weight:400;color:#5c7893"></b></span>
+        <select id="add-pin"></select>
+      </label>
+      <button id="add-btn" style="margin-top:10px" data-t="add.button"></button>
+      <p class="status" id="add-status" role="status" aria-live="polite"></p>
+    </div>
+
+    <div class="card" id="added-card" hidden>
+      <!-- Collapsed to begin with: the list grows a panel for every part, and
+           with a dozen of them the page below it becomes unreachable.
+           <details> rather than a scripted toggle, because it opens with the
+           keyboard and announces itself without any work. -->
+      <details id="added-details">
+        <summary><span id="added-summary"></span></summary>
+        <div id="added-list"></div>
+      </details>
+    </div>
+
+    <div class="card note-card" id="traps" hidden>
+      <h2 data-t="traps.title"></h2>
+      <div id="traps-body"></div>
+    </div>
+  </div>
+</main>
+
+<script type="application/json" id="vis-labels">
+{
+"ja": {
+  "lang.other": "English",
+  "lang.href": "?lang=en",
+
+  "build.title": "課題のビルドと実行",
+  "build.exercise": "課題",
+  "build.button": "ビルドして実行",
+  "build.building": "ビルド中…",
+  "build.running": "実行中: {0}",
+  "build.selftest": "セットアップ自己テスト（課題ではありません）",
+  "build.built": "ビルドして実行しました。",
+  "build.failed": "コンパイルできませんでした。下のコンパイラの出力を読んでください。",
+  "build.blocked": "ビルドを実行できませんでした。これはあなたのコードの問題ではありません。",
+  "build.unknown": "その課題は見つかりません。",
+  "build.busy": "すでにビルドが実行中です。少し待ってからもう一度押してください。",
+  "build.kept": "ここで設定した値は、ビルドし直しても保たれます。",
+  "build.drop": "ダウンロードしたビルドをここにドロップ（またはクリックして選択）",
+  "build.sending": "送信中…",
+  "build.sendfailed": "ファイルを送信できませんでした。",
+  "build.loaded": "読み込んで実行しました。",
+  "build.notfirmware": "これは firmware ではありません。Release の .elf か、Actions の .zip を渡してください。",
+  "build.nothinginside": "この .zip には、この課題のビルドが入っていません。",
+  "build.fetching": "GitHub から取得中…",
+  "build.nocredential": "このフォルダには GitHub のサインインが保存されていないため、取得できません。リポジトリの Actions タブからビルドをダウンロードし、下にドロップしてください。HTTPS でクローンするとサインインが保存されますが、SSH では保存されません。",
+  "build.norun": "保持されているビルドがありません。保持期間は 7 日です。もう一度 push すると新しく作られます。",
+  "build.nopush": "まだ push していないので、GitHub はまだ何もビルドしていません。push してからもう一度押してください。",
+  "build.neverbuilt": "GitHub にこの課題のビルドはありません。まだ向こうでコンパイルできていないということです。「ビルドして実行」でエラーを直してから push してください。",
+  "build.fetchfailed": "ビルドを取得できませんでした。",
+  "build.fetchbutton": "GitHub がビルドしたものを実行",
+  "build.from": "実行中のビルド: コミット {0}",
+  "build.notyours": "これはいま手元にあるコードではありません。",
+  "env.title": "環境の確認",
+  "env.ready": "ビルドと実行に必要なものは揃っています。",
+  "env.incomplete": "足りないものがあります。これはあなたのコードの問題ではありません。",
+  "env.unchecked": "環境を確認できませんでした。",
+  "env.details": "詳細",
+
+  "card.link": "シミュレータとの接続",
+  "card.status": "状態:",
+  "card.plugin": "プラグイン:",
+  "ws.connecting": "接続中…",
+  "ws.connected": "接続しました",
+  "ws.reconnecting": "切断されました。再接続します…",
+
+  "serial.title": "シリアル出力 · プログラムが印字した内容",
+  "serial.empty": "まだ何も出力されていません。課題 1 から 4 はシリアルを使わないので、ここは空のままで正常です。",
+  "onboard.title": "ボード上の部品",
+
+  "add.title": "部品を追加する",
+  "add.part": "部品",
+  "add.where": "接続先",
+  "add.button": "ボードに追加",
+  "add.adding": "追加しています…",
+  "cat.Output": "出力",
+  "cat.Input": "入力",
+  "cat.Sensor": "センサ",
+  "where.i2c": "I2C1 のアドレス {0}。バスは PB8 と PB9 に配線済みです",
+  "where.pin": "空いているピンを選んでください",
+  "where.nofree": "空いているピンがありません",
+  "where.option": "{0} · {1} · {2}",
+
+  "added.count": "追加した部品 ({0})",
+  "board.addedEmpty": "まだ何も追加されていません — 「部品を追加する」から",
+  "status.added": "{0} を {1} に追加しました",
+  "status.removed": "{0} を board.repl から削除しました。反映するにはシミュレーションを再起動してください",
+  "status.refused": "追加できませんでした: {0}",
+  "remove.button": "取り外す",
+  "remove.title": "{0} を board.repl から取り外します",
+  "remove.removing": "取り外しています…",
+
+  "control.hold": "押している間だけ · {0}",
+  "led.on": "点灯",
+  "led.off": "消灯",
+
+  "pin.free": "空き",
+  "pin.board": "ボードの部品が使用中",
+  "pin.added": "追加した部品が使用中",
+  "pin.reserved": "他の用途に予約済み",
+  "pin.power": "電源または GND。信号ピンではありません",
+  "pin.unmodelled": "ボードにはありますが、シミュレータにはありません",
+  "pin.title": "{0} · {1} · {2} — {3}",
+  "pin.titleBare": "{0} · {1} — {2}",
+  "pin.switch": "{0} のスイッチ、押している間だけ",
+
+  "legend.free": "空き — 部品を配線できます",
+  "legend.board": "ボード自身が使用",
+  "legend.added": "追加した部品が使用",
+  "legend.reserved": "他の用途に予約済み",
+  "legend.power": "電源または GND",
+  "legend.wire": "信号線",
+  "legend.i2c": "I2C バス — 実際の配線であり、シミュレートされていません",
+  "legend.gnd": "GND への戻り — 実機では必要ですが、シミュレートされていません",
+  "legend.hover": "部品にポインタを合わせると、他の配線が薄くなります",
+
+  "wire.drives": "{0} に接続",
+  "wire.gnd": "GND への戻り。実機では必要ですが、Renode は GND を一切モデル化していません",
+  "wire.gndOther": "GND は {0} にあります。実機では配線が必要です",
+  "wire.i2c": "I2C1 · SDA は PB9、SCL は PB8",
+  "wire.bus": "I2C1 バス。すべてのセンサがこの 2 本を共有します",
+
+  "package.title": "実機の値です。シミュレータはこれより多い flash と SRAM を提供し、クロックもクロックツリーから求めていません",
+  "boardOnly.title": "{0} · {1} — 実機にはありますが、Renode はモデル化していません",
+
+  "part.handWired": "手書きで宣言された部品",
+  "part.noHole": "このピンはコネクタに出ていません",
+
+  "div.heading": "シミュレータと実機の違い",
+  "div.renode": "Renode: {0}",
+  "traps.title": "見逃しやすい違い",
+  "traps.body": "次の点では、実機では動かないコードがシミュレータでは動いてしまいます。"
+},
+"en": {
+  "lang.other": "日本語",
+  "lang.href": "?lang=ja",
+
+  "build.title": "Build and run an exercise",
+  "build.exercise": "Exercise",
+  "build.button": "Build and run",
+  "build.building": "Building…",
+  "build.running": "Now running: {0}",
+  "build.selftest": "the setup self-test (not an exercise)",
+  "build.built": "Built and running.",
+  "build.failed": "Your code did not compile. Read the compiler's output below.",
+  "build.blocked": "The build could not be attempted. This is not a problem with your code.",
+  "build.unknown": "There is no such exercise.",
+  "build.busy": "A build is already running. Press again in a moment.",
+  "build.kept": "Readings you set here are kept when you rebuild.",
+  "build.drop": "Drop a build you downloaded here, or click to choose one",
+  "build.sending": "Sending\u2026",
+  "build.sendfailed": "The file could not be sent.",
+  "build.loaded": "Loaded and running.",
+  "build.notfirmware": "That is not firmware. Hand over the .elf from a Release, or the .zip from an Actions run.",
+  "build.nothinginside": "That .zip holds no build for this exercise.",
+  "build.fetching": "Fetching from GitHub…",
+  "build.nocredential": "No saved GitHub sign-in in this folder, so this cannot fetch. Download the build from your repository's Actions tab and drop it below. A clone made over HTTPS saves a sign-in; one made over SSH does not.",
+  "build.norun": "GitHub has no kept build for this. Builds are kept for seven days — push again to make a fresh one.",
+  "build.nopush": "You have not pushed yet, so GitHub has not built anything. Push your work and press this again.",
+  "build.neverbuilt": "GitHub has no build of this exercise — it has not compiled there yet. Use “Build and run” to see the errors, fix them, and push.",
+  "build.fetchfailed": "The build could not be fetched.",
+  "build.fetchbutton": "Run the build GitHub made",
+  "build.from": "Running the build of commit {0}",
+  "build.notyours": "That is not the code you have in front of you.",
+  "env.title": "Environment check",
+  "env.ready": "Everything needed to build and run is here.",
+  "env.incomplete": "Something is missing. This is not a problem with your code.",
+  "env.unchecked": "The environment could not be checked.",
+  "env.details": "Details",
+
+  "card.link": "Live link to the simulator",
+  "card.status": "Status:",
+  "card.plugin": "Plugin:",
+  "ws.connecting": "connecting…",
+  "ws.connected": "connected",
+  "ws.reconnecting": "disconnected — reconnecting…",
+
+  "serial.title": "Serial output · what your program prints",
+  "serial.empty": "Nothing printed yet. Exercises 1 to 4 do not use the serial port, so an empty panel here is correct.",
+  "onboard.title": "On the board",
+
+  "add.title": "Add a part",
+  "add.part": "Part",
+  "add.where": "Where",
+  "add.button": "Add to board",
+  "add.adding": "adding…",
+  "cat.Output": "Output",
+  "cat.Input": "Input",
+  "cat.Sensor": "Sensors",
+  "where.i2c": "I2C1 at address {0}. The bus is already wired to PB8 and PB9",
+  "where.pin": "choose a free pin",
+  "where.nofree": "no free pins left",
+  "where.option": "{0} · {1} · {2}",
+
+  "added.count": "Added parts ({0})",
+  "board.addedEmpty": "nothing added yet — use “Add a part”",
+  "status.added": "added {0} on {1}",
+  "status.removed": "{0} removed from board.repl — restart the simulation for it to take effect",
+  "status.refused": "could not add it: {0}",
+  "remove.button": "Remove",
+  "remove.title": "Take {0} out of board.repl",
+  "remove.removing": "removing…",
+
+  "control.hold": "Hold to press · {0}",
+  "led.on": "on",
+  "led.off": "off",
+
+  "pin.free": "free",
+  "pin.board": "used by the board itself",
+  "pin.added": "used by a part you added",
+  "pin.reserved": "reserved for something else",
+  "pin.power": "power or ground, not a signal pin",
+  "pin.unmodelled": "on the board, but the simulator has no such pin",
+  "pin.title": "{0} · {1} · {2} — {3}",
+  "pin.titleBare": "{0} · {1} — {2}",
+  "pin.switch": "switch on {0}, hold to press",
+
+  "legend.free": "free — you can wire a part to it",
+  "legend.board": "used by the board itself",
+  "legend.added": "used by a part you added",
+  "legend.reserved": "reserved for something else",
+  "legend.power": "power or ground",
+  "legend.wire": "a signal wire",
+  "legend.i2c": "the I²C bus — real wiring, not simulated",
+  "legend.gnd": "the return to GND — needed on real hardware, not simulated",
+  "legend.hover": "Hover a part to fade the other wiring.",
+
+  "wire.drives": "to {0}",
+  "wire.gnd": "the return to GND. Needed on a bench; Renode models no ground at all",
+  "wire.gndOther": "GND is on {0}. On real hardware this has to be wired",
+  "wire.i2c": "I2C1 · SDA on PB9, SCL on PB8",
+  "wire.bus": "the I2C1 bus. Every sensor shares these two wires",
+
+  "package.title": "The real device's figures. The simulator offers more flash and SRAM than this, and does not take its clock from the clock tree",
+  "boardOnly.title": "{0} · {1} — on the real board, not modelled by Renode",
+
+  "part.handWired": "declared by hand",
+  "part.noHole": "this pin is not on a connector",
+
+  "div.heading": "Where the simulation differs from the board",
+  "div.renode": "Renode: {0}",
+  "traps.title": "Differences that hide a mistake",
+  "traps.body": "In each of these, code that would not work on the real board works here."
+}
+}
+</script>
+
+<script>
+  const SVGNS = "http://www.w3.org/2000/svg";
+
+  // ---- language -----------------------------------------------------------
+  // Japanese by default, because the learners this is built for read Japanese
+  // and everything else they are given -- the exercise checks, the hints, the
+  // feedback issue -- is in Japanese. Both languages live in one block in this
+  // file rather than in two pages, so a change cannot be made to one and
+  // forgotten in the other.
+  // The choice sticks. A developer or an administrator who does not read
+  // Japanese should switch once, not on every page they open -- and the board
+  // is reopened constantly, once per run of the simulator. The URL still wins
+  // when it says something, so a link can carry a language regardless of what
+  // the browser last remembered.
+  const LANG = (function () {
+    const asked = new URLSearchParams(location.search).get("lang");
+    if (asked === "en" || asked === "ja") {
+      try { localStorage.setItem("vis-lang", asked); } catch (e) {}
+      return asked;
+    }
+    try {
+      const kept = localStorage.getItem("vis-lang");
+      if (kept === "en" || kept === "ja") return kept;
+    } catch (e) {}
+    return "ja";
+  })();
+  const LABELS = JSON.parse(document.getElementById("vis-labels").textContent);
+  // Said on the element, not only in the text. A screen reader picks its
+  // pronunciation from this, and a Japanese page announced as English is
+  // unintelligible rather than merely wrong.
+  document.documentElement.lang = LANG;
+
+  function fill(text, params) {
+    let out = text;
+    if (params) params.forEach((v, i) => { out = out.split("{" + i + "}").join(v); });
+    return out;
+  }
+  function tr(key, params) {
+    const own = (LABELS[LANG] || {})[key];
+    return fill(own !== undefined ? own : (LABELS.en[key] !== undefined ? LABELS.en[key] : key),
+                params);
+  }
+  // Pick the language a divergence row was written in. The row carries both,
+  // so there is one fact rather than a translation kept somewhere else.
+  function rowText(row, field) {
+    return (LANG === "ja" && row[field + "_ja"]) || row[field];
+  }
+
+  for (const el of document.querySelectorAll("[data-t]")) el.textContent = tr(el.dataset.t);
+  (function () {
+    const a = document.getElementById("lang-toggle");
+    a.textContent = tr("lang.other");
+    a.href = tr("lang.href");
+  })();
+
+  // ---- the elements the panel writes into ---------------------------------
+  const uartBox = document.getElementById("uart");
+  const wsState = document.getElementById("ws-state");
+  const kindSel = document.getElementById("add-kind");
+  const pinSel = document.getElementById("add-pin");
+  const locHint = document.getElementById("loc-hint");
+  const addWhat = document.getElementById("add-what");
+  const addStatus = document.getElementById("add-status");
+  const addedCard = document.getElementById("added-card");
+  const addedList = document.getElementById("added-list");
+  const addedSummary = document.getElementById("added-summary");
+  const addedParts = document.getElementById("added-parts");
+  const addedEmpty = document.getElementById("added-empty");
+  const buildPick = document.getElementById("build-pick");
+  const buildBtn = document.getElementById("build-btn");
+  const buildRunning = document.getElementById("build-running");
+  const buildOutcome = document.getElementById("build-outcome");
+  const buildOutput = document.getElementById("build-output");
+  const buildFrom = document.getElementById("build-from");
+  const fetchBtn = document.getElementById("fetch-btn");
+  const fetchNote = document.getElementById("fetch-note");
+  // Whether the launcher found a credential. Until the plugin says, assume
+  // not: offering a control that cannot work is worse than offering it late.
+  let canFetch = false;
+  const envCard = document.getElementById("env-card");
+  const envState = document.getElementById("env-state");
+  const envDetails = document.getElementById("env-details");
+  const envOutput = document.getElementById("env-output");
+  const onboardList = document.getElementById("onboard-list");
+  const boardSvg = document.getElementById("board");
+  const pinGrid = document.getElementById("pin-grid");
+
+  const COLOURS = {};
+  const pinPos = {};              // pin name -> {x, y} on the drawing
+  const GND_POS = [];             // the board's ground holes, for return wires
+  const SENSOR_FIELDS = {};       // 'sysbus.i2c1.x.Temperature' -> element id
+  let pins = {}, connectors = [], catalogue = {}, onboard = {};
+  let divergences = [], uartChars = [];
+
+  function cssId(k) { return String(k).replace(/[^a-zA-Z0-9]/g, "_"); }
+  function svgEl(tag, attrs, text) {
+    const el = document.createElementNS(SVGNS, tag);
+    // A null is left off rather than written out. setAttribute stringifies,
+    // so an attribute passed conditionally came through as the four letters
+    // "null" -- which for stroke-dasharray is not nothing, it is invalid.
+    for (const k in attrs) {
+      if (attrs[k] === null || attrs[k] === undefined) continue;
+      el.setAttribute(k, attrs[k]);
+    }
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
+
+  // ---- the legend ---------------------------------------------------------
+  // The same shapes that are drawn on the board, so the drawing can be looked
+  // up. Built from script rather than written out, because every state below
+  // has to appear here and a hand-written list is how one of them quietly
+  // stops being explained.
+  const PIN_STATES = [
+    ["free",     "#ffd76a", "open"],
+    ["board",    "#7fc4ff", "ringed"],
+    ["added",    "#ff8a7a", "filled"],
+    ["reserved", "#9fb8d0", "square"],
+    ["power",    "#7d8894", "bar"]
+  ];
+
+  function markPath(mark, x, y, ink) {
+    if (mark === "open") return svgEl("circle", {cx: x, cy: y, r: 2.4, fill: ink});
+    if (mark === "filled") return svgEl("circle", {cx: x, cy: y, r: 3.6, fill: ink});
+    if (mark === "ringed") return svgEl("circle", {cx: x, cy: y, r: 3.6, fill: "none",
+      stroke: ink, "stroke-width": "1.6"});
+    if (mark === "dashed") return svgEl("circle", {cx: x, cy: y, r: 3.6, fill: "none",
+      stroke: ink, "stroke-width": "1.6", "stroke-dasharray": "2.2 1.8"});
+    if (mark === "square") return svgEl("rect", {x: x - 2.6, y: y - 2.6, width: 5.2,
+      height: 5.2, fill: ink});
+    if (mark === "bar") return svgEl("rect", {x: x - 4, y: y - 1.2, width: 8,
+      height: 2.4, rx: 1, fill: ink});
+    return svgEl("path", {d: "M" + (x - 4) + " " + (y - 4) + " L" + (x + 4) + " " + (y + 4)
+      + " M" + (x + 4) + " " + (y - 4) + " L" + (x - 4) + " " + (y + 4),
+      stroke: ink, "stroke-width": "1.6", "stroke-linecap": "round"});
+  }
+
+  (function drawLegend() {
+    const host = document.getElementById("legend");
+    for (const [key, ring, mark] of PIN_STATES) {
+      const wrap = document.createElement("span");
+      const svg = svgEl("svg", {width: 18, height: 18, viewBox: "0 0 20 20",
+        "aria-hidden": "true", style: "vertical-align:-4px"});
+      svg.appendChild(svgEl("circle", {cx: 10, cy: 10, r: 7, fill: ring,
+        stroke: "#8a949e", "stroke-width": 1}));
+      svg.appendChild(markPath(mark, 10, 10, "#132a4d"));
+      wrap.appendChild(svg);
+      wrap.appendChild(document.createTextNode(" " + tr("legend." + key)));
+      host.appendChild(wrap);
+    }
+    for (const [key, colour, dash] of [["wire", "#2e7d32", null],
+                                        ["i2c", "#6a3d9a", "5 4"],
+                                        ["gnd", "#5c6773", "5 4"]]) {
+      const wrap = document.createElement("span");
+      const svg = svgEl("svg", {width: 26, height: 12, viewBox: "0 0 26 12",
+        "aria-hidden": "true", style: "vertical-align:-1px"});
+      const line = svgEl("path", {d: "M1 6 H25", stroke: colour,
+        "stroke-width": 2.4, "stroke-linecap": "round"});
+      if (dash) line.setAttribute("stroke-dasharray", dash);
+      svg.appendChild(line);
+      wrap.appendChild(svg);
+      wrap.appendChild(document.createTextNode(" " + tr("legend." + key)));
+      host.appendChild(wrap);
+    }
+    const hover = document.createElement("span");
+    hover.style.color = "#0b2d4d";
+    hover.textContent = tr("legend.hover");
+    host.appendChild(hover);
+  })();
+
+  document.getElementById("package").appendChild(
+    svgEl("title", {}, tr("package.title")));
+
+  // ---- the pinout ---------------------------------------------------------
+  // Two header rows down the long edges, the way a development board is drawn:
+  // a plated hole, the pin name in silkscreen on the inner side and the
+  // Arduino name on the outer side. Drawn from the live connector table rather
+  // than hard-coded here, so what is shown is what the plugin really has --
+  // including the two holes on CN5 that carry no signal at all.
+  const HDR = {left: 186, right: 584, top: 210, pitch: 21};
+
+  function drawPins() {
+    pinGrid.innerHTML = "";
+    GND_POS.length = 0;
+    if (!connectors.length) return;
+
+    const columns = {left: [], right: []};
+    for (const [name, side, rows] of connectors) columns[side].push([name, rows]);
+
+    for (const side of ["left", "right"]) {
+      let y = HDR.top;
+      const x = side === "left" ? HDR.left : HDR.right;
+      for (const [conn, rows] of columns[side]) {
+        pinGrid.appendChild(svgEl("text", {x: x + (side === "left" ? 20 : -20),
+          y: y - 8, "text-anchor": side === "left" ? "start" : "end",
+          "font-size": "10", "font-weight": "700",
+          "font-family": "Consolas,monospace", fill: "#ffd76a"}, conn));
+
+        for (const [label, pinName] of rows) {
+          const info = pinName ? lookupPin(pinName) : null;
+          if (pinName) pinPos[pinName] = {x: x, y: y};
+          // Ground holes carry no pin name, so they were never given a
+          // position. A part's return wire has to reach one, so record them.
+          if (label === "GND") GND_POS.push({x: x, y: y, side: side, conn: conn});
+
+          // Colour alone must not carry the meaning: someone who cannot
+          // separate amber from salmon would have no way to tell a free hole
+          // from a taken one. Each state gets a distinct mark as well, so the
+          // drawing still reads in greyscale.
+          let key = "free";
+          if (!pinName) key = "power";
+          else if (!info) key = "unmodelled";
+          else if (info.onBoard) key = "board";
+          else if (info.added) key = "added";
+          else if (info.reserved) key = "reserved";
+
+          const found = PIN_STATES.filter(s => s[0] === key)[0];
+          const ring = found ? found[1] : "#4a5568";
+          const mark = found ? found[2] : "cross";
+          // The mark has to be visible against its own ring. A dark mark on the
+          // dark "not modelled" ring is no mark at all, so that state takes a
+          // light one instead.
+          const ink = (mark === "cross") ? "#eef3f8" : "#132a4d";
+
+          const g = svgEl("g", {});
+          // The visible pad is 18 across, but the target must be at least 24
+          // by 24, so an invisible one sits behind it rather than making the
+          // drawing coarser.
+          g.appendChild(svgEl("rect", {x: x - 12, y: y - 12, width: 24, height: 24,
+            fill: "transparent"}));
+          g.appendChild(svgEl("rect", {x: x - 9, y: y - 9, width: 18, height: 18,
+            rx: 2, fill: "#0c2b1c", stroke: "#08301d"}));
+          g.appendChild(svgEl("circle", {cx: x, cy: y, r: 6, fill: ring,
+            stroke: "#0d4229", "stroke-width": "0.8"}));
+          g.appendChild(markPath(mark, x, y, ink));
+
+          if (info && info.attach === "gpio-out" && info.taken) {
+            const lit = svgEl("circle", {cx: x, cy: y, r: 6, fill: "#ff5a4a",
+              filter: "url(#glow)", visibility: "hidden",
+              "data-led": info.taken});
+            g.appendChild(lit);
+          }
+          if (info && info.attach === "gpio-in" && info.taken) {
+            // A switch is operable where it sits on the board, by pointer or by
+            // keyboard. The hole shows it is held, the same way the part does.
+            g.setAttribute("style", "cursor:pointer");
+            g.setAttribute("aria-label", tr("pin.switch", [pinName]));
+            const held = svgEl("circle", {cx: x, cy: y, r: 10, fill: "none",
+              stroke: "#ffd76a", "stroke-width": "2.5", filter: "url(#glow)"});
+            held.setAttribute("visibility", "hidden");
+            g.appendChild(held);
+            BUTTON_VIEWS.push({name: info.taken,
+              show: down => held.setAttribute("visibility", down ? "visible" : "hidden")});
+            bindHold(g, info.taken, pinName);
+          }
+
+          // silkscreen: the Arduino name on the outer side of the hole, the
+          // pin name on the inner side -- both printed on the board, as they
+          // are on the real one.
+          const dir = side === "left" ? 1 : -1;
+          g.appendChild(svgEl("text", {x: x + dir * 14, y: y + 4,
+            "text-anchor": side === "left" ? "start" : "end",
+            "font-size": "11", "font-family": "Consolas,monospace", fill: "#ffffff",
+            "pointer-events": "none"}, label));
+          if (pinName) {
+            g.appendChild(svgEl("text", {x: x - dir * 14, y: y + 4,
+              "text-anchor": side === "left" ? "end" : "start",
+              "font-size": "11", "font-weight": "700",
+              "font-family": "Consolas,monospace",
+              fill: !info ? "#a5b5c8" : (info.taken ? "#ffb2a3" : "#ffe08a"),
+              "pointer-events": "none"}, pinName));
+          }
+
+          // The same fact in words, for hovering, for focus, and for a screen
+          // reader. The shape and the colour are two more ways of saying it.
+          const words = info && info.what ? info.what : tr("pin." + key);
+          g.appendChild(svgEl("title", {}, pinName
+            ? tr("pin.title", [pinName, label, conn, words])
+            : tr("pin.titleBare", [label, conn, tr("pin." + key)])));
+          pinGrid.appendChild(g);
+          y += HDR.pitch;
+        }
+        y += 16;
+      }
+    }
+    drawBoardParts();
+  }
+
+  // The plugin sends one flat map of pin name to what is on it. Translated
+  // here into the few things the drawing asks about, so the rest of the page
+  // never has to know the wire format.
+  function lookupPin(name) {
+    const p = pins[name];
+    if (!p) return null;
+    const entry = catalogue[p.kind] || {};
+    let attach = entry.attach;
+    if (!attach) {
+      attach = p.kind === "LED" ? "gpio-out"
+             : p.kind === "BUTTON" ? "gpio-in"
+             : p.kind === "SENSOR" ? "i2c" : null;
+    }
+    return {
+      port: p.port, index: p.index, header: p.header, label: p.label,
+      reserved: p.reserved || null, what: p.what || null,
+      taken: p.occupant || null,
+      onBoard: !!p.onboard, added: !!p.added,
+      attach: attach
+    };
+  }
+
+  // Where the board's own parts sit on the drawing. The pin each one is on
+  // comes from the plugin; only the position is decided here, because only the
+  // drawing knows where there is room.
+  const BOARD_AT = {
+    led:    {x: 300, y: 660, label: "LD2", colour: "#37b24d"},
+    button: {x: 300, y: 780, label: "B1"}
+  };
+
+  // Also on the real board and NOT modelled by Renode, drawn dimmed so the
+  // picture does not suggest the board carries less than it really does.
+  const BOARD_ONLY = [
+    {label: "LD1 COM", detail: "ST-LINK", x: 470, y: 660},
+    {label: "LD3 PWR", detail: "power",   x: 470, y: 720},
+    {label: "B2 RESET", detail: "NRST",   x: 470, y: 780}
+  ];
+
+  function drawBoardParts() {
+    const host = document.getElementById("board-parts");
+    host.innerHTML = "";
+
+    for (const name in BOARD_AT) {
+      const part = onboard[name];
+      if (!part) continue;
+      const at = part.pin ? pinPos[part.pin] : null;
+      const spot = BOARD_AT[name];
+      const g = svgEl("g", {});
+      if (at) {
+        // A trace from the pad to the component, with right angles, the way a
+        // board routes one. It was a straight line, which for LD2 meant a
+        // diagonal from a hole on the right edge to a component at the bottom
+        // left, straight across the package -- a shape no PCB has and the one
+        // thing on the drawing that did not look like a board.
+        //
+        // Out of the hole into the gap between two rows first, then down a
+        // lane inside the headers but clear of their printed names, then
+        // across below the package.
+        const gap = at.y > spot.y ? -11 : 11;
+        const lane = at.x > 400 ? 520 : 250;
+        g.appendChild(svgEl("path", {
+          d: "M" + at.x + " " + at.y + " V" + (at.y + gap)
+             + " H" + lane + " V" + spot.y + " H" + spot.x,
+          stroke: "#8fd0ad", "stroke-width": "1.6", fill: "none",
+          "stroke-linejoin": "round", opacity: "0.65"}));
+      }
+      if (part.kind === "LED") {
+        g.appendChild(svgEl("rect", {x: spot.x - 11, y: spot.y - 7, width: 22,
+          height: 14, rx: 2, fill: "#dfe6ea", stroke: "#9fb0bb", "stroke-width": "1"}));
+        const lit = svgEl("rect", {x: spot.x - 11, y: spot.y - 7, width: 22,
+          height: 14, rx: 2, fill: spot.colour, filter: "url(#glow)",
+          "data-led": name});
+        lit.setAttribute("visibility", "hidden");
+        g.appendChild(lit);
+        COLOURS[name] = spot.colour;
+      } else {
+        g.appendChild(pressable(spot.x, spot.y, name, 16, 16, 9, spot.label));
+      }
+      g.appendChild(svgEl("text", {x: spot.x, y: spot.y + 28, "text-anchor": "middle",
+        "font-size": "9", "font-family": "Consolas,monospace", fill: "#dff5e8"},
+        spot.label + " " + (part.pin || "")));
+      g.appendChild(svgEl("title", {}, part.what || spot.label));
+      host.appendChild(g);
+    }
+
+    for (const item of BOARD_ONLY) {
+      const g = svgEl("g", {opacity: "0.4"});
+      g.appendChild(svgEl("rect", {x: item.x - 11, y: item.y - 7, width: 22,
+        height: 14, rx: 2, fill: "#8fa3ae", stroke: "#6c7e88", "stroke-width": "1"}));
+      g.appendChild(svgEl("text", {x: item.x, y: item.y + 28, "text-anchor": "middle",
+        "font-size": "8", "font-family": "Consolas,monospace", fill: "#dff5e8"}, item.label));
+      g.appendChild(svgEl("title", {}, tr("boardOnly.title", [item.label, item.detail])));
+      host.appendChild(g);
+    }
+  }
+
+  // ---- parts, drawn as the components they are ----------------------------
+  // A 5 mm LED has a dome and two legs, a tactile switch has a metal plunger, a
+  // sensor is a small breakout PCB with a header. A learner who has never seen
+  // a microcontroller should recognise the thing on screen when they meet it on
+  // a desk.
+
+  // Every drawn switch, so a BUTTON message from the plugin can update it.
+  const BUTTON_VIEWS = [];
+
+  // A switch you can see the state of. This shows what Renode reports, not
+  // where the pointer is: if a press did not reach the simulator, nothing
+  // lights, which is the whole point of showing it.
+  function pressable(cx, cy, target, halfW, halfH, r, label) {
+    const g = svgEl("g", {style: "cursor:pointer"});
+    g.appendChild(svgEl("rect", {x: cx - halfW, y: cy - halfH, width: halfW * 2,
+      height: halfH * 2, rx: 3, fill: "#26292d", stroke: "#111", "stroke-width": "1"}));
+    const ring = svgEl("circle", {cx: cx, cy: cy, r: r + 4, fill: "none",
+      stroke: "#ffd76a", "stroke-width": "2.5", filter: "url(#glow)"});
+    ring.setAttribute("visibility", "hidden");
+    g.appendChild(ring);
+    const cap = svgEl("circle", {cx: cx, cy: cy, r: r, fill: "url(#metal)",
+      stroke: "#7d878f", "stroke-width": "1"});
+    g.appendChild(cap);
+
+    function show(down) {
+      ring.setAttribute("visibility", down ? "visible" : "hidden");
+      cap.setAttribute("cy", cy + (down ? 2 : 0));
+      cap.setAttribute("r", down ? r - 1 : r);
+      cap.setAttribute("fill", down ? "#9aa4ac" : "url(#metal)");
+      g.setAttribute("aria-pressed", down ? "true" : "false");
+    }
+    BUTTON_VIEWS.push({name: target, show: show});
+
+    g.setAttribute("aria-pressed", "false");
+    bindHold(g, target, label);
+    return g;
+  }
+
+  function partBody(info, names, x, y) {
+    const g = svgEl("g", {});
+    const mid = x + 90;
+    const kind = info.kind;
+
+    // Each leg's tip is recorded, so a wire can be drawn to the leg it would
+    // actually be soldered to rather than to the edge of the box.
+    const legPts = [];
+    function legs(cx, count, top, spread) {
+      const w = svgEl("g", {});
+      for (let i = 0; i < count; i++) {
+        const lx = cx - (spread * (count - 1)) / 2 + i * spread;
+        w.appendChild(svgEl("rect", {x: lx - 1.5, y: top, width: 3, height: 14,
+          fill: "url(#metal)"}));
+        legPts.push({x: lx, y: top + 14});
+      }
+      return w;
+    }
+
+    if (info.handWired) {
+      // No artwork, because the tool does not know what this is. It says where
+      // the part is and that a person put it there, which is all it can
+      // honestly claim.
+      g.appendChild(svgEl("rect", {x: mid - 46, y: y + 12, width: 92, height: 46,
+        rx: 3, fill: "#eef1f5", stroke: "#7c8794", "stroke-width": "1",
+        "stroke-dasharray": "4 3"}));
+      g.appendChild(svgEl("text", {x: mid, y: y + 33, "text-anchor": "middle",
+        "font-size": "10", fill: "#3d4c63"}, tr("part.handWired")));
+      g.appendChild(svgEl("text", {x: mid, y: y + 47, "text-anchor": "middle",
+        "font-size": "9", fill: "#5c7893"}, info.label));
+      g.appendChild(legs(mid, 2, y + 58, 12));
+
+    } else if (info.attach === "gpio-out") {
+      // a 5 mm LED: dome, a bright die, and two legs
+      const holder = svgEl("g", {});
+      holder.appendChild(svgEl("circle", {cx: mid, cy: y + 28, r: 15,
+        fill: "#dfe6ea", stroke: "#aab6bd", "stroke-width": "1"}));
+      const lit = svgEl("circle", {cx: mid, cy: y + 28, r: 15, fill: "#ff3b30",
+        filter: "url(#glow)", "data-led": names[0]});
+      lit.setAttribute("visibility", "hidden");
+      holder.appendChild(lit);
+      holder.appendChild(svgEl("ellipse", {cx: mid - 4.5, cy: y + 22.8, rx: 4.5,
+        ry: 3, fill: "#ffffff", opacity: "0.5"}));
+      COLOURS[names[0]] = "#ff3b30";
+      g.appendChild(holder);
+      g.appendChild(legs(mid, 2, y + 43, 9));
+
+    } else if (info.attach === "gpio-in") {
+      g.appendChild(pressable(mid, y + 34, names[0], 21, 16, 11, names[0]));
+      g.appendChild(legs(mid, 4, y + 50, 14));
+
+    } else {
+      // a breakout board: a small PCB, a chip, and a four-pin header printed
+      // in the order these boards are printed in
+      g.appendChild(svgEl("rect", {x: mid - 52, y: y + 10, width: 104, height: 54,
+        rx: 3, fill: "#2f2a6b", stroke: "#1d1a45", "stroke-width": "1",
+        "stroke-dasharray": null}));
+      g.appendChild(svgEl("rect", {x: mid - 16, y: y + 24, width: 32, height: 24,
+        rx: 2, fill: "url(#chip)"}));
+      g.appendChild(legs(mid, 4, y + 64, 16));
+      ["VCC", "GND", "SDA", "SCL"].forEach((t, i) => {
+        g.appendChild(svgEl("text", {x: mid - 24 + i * 16, y: y + 86,
+          "text-anchor": "middle", "font-size": "6",
+          "font-family": "Consolas,monospace", fill: "#5c7893"}, t));
+      });
+      g.appendChild(svgEl("text", {x: mid, y: y + 20, "text-anchor": "middle",
+        "font-size": "8", "font-family": "Consolas,monospace", fill: "#cfd6ff"}, kind));
+      const first = (info.props || [])[0];
+      if (first) {
+        g.appendChild(svgEl("text", {x: mid, y: y + 42, "text-anchor": "middle",
+          "font-size": "10", "font-family": "Consolas,monospace", fill: "#8fb4ff",
+          id: "chip-" + cssId(info.path + "." + first[0])}, "—"));
+      }
+    }
+    g.__legs = legPts;   // where a wire may be soldered
+    return g;
+  }
+
+  // ---- laying the added parts out beside the board ------------------------
+  // The board sits in the middle, and a part is drawn on the side its wire
+  // actually leaves from: a part on A0 belongs to the left of the board, not
+  // across it. Two columns each side, and the canvas grows rather than
+  // clipping -- a part you cannot see is one you cannot remove either.
+  const ADDED = [];
+  // Where the next part goes. Sensors are counted separately from everything
+  // else, because they get a column to themselves: they all hang off one bus
+  // trunk, and with two columns of them the stub reaching the far column ran
+  // horizontally underneath the near one, through its printed name.
+  const SLOT = {left: 0, right: 0, bus: 0};
+  const BOARD_DX = 430;
+  const ADDED_COLS = 2, ADDED_PITCH = 190, ADDED_ROW = 170;
+  const LEFT_X0 = 40, RIGHT_X0 = 1145;
+  const CANVAS_W = 1500, CANVAS_H = 900;
+
+  // A colour per part, so a wire can be traced back to the thing it belongs
+  // to. Colour is not the only cue: each wire also names its pin on hover, and
+  // hovering a part dims every other part's wires.
+  const WIRE_COLOURS = ["#2e7d32", "#c62828", "#1565c0", "#00838f",
+                        "#ad1457", "#4e342e", "#558b2f", "#bf360c"];
+
+  function sideOfPin(name) {
+    for (const [, side, rows] of connectors)
+      for (const [, pin] of rows) if (pin === name) return side;
+    return "right";   // a hole the board does not bring out: keep it clear of
+  }                   // the drawing rather than guessing
+
+  function sideOfPart(info) {
+    const first = (info.pinNames || [])[0] || (info.busPins || [])[0];
+    return first ? sideOfPin(first) : "right";
+  }
+
+  function fitCanvas() {
+    const onBus = ADDED.filter(p => p.attach === "i2c").length;
+    const right = ADDED.filter(p => p.attach !== "i2c" && sideOfPart(p) === "right").length;
+    const left = ADDED.filter(p => p.attach !== "i2c" && sideOfPart(p) === "left").length;
+    const rows = Math.max(onBus, right, Math.ceil(left / ADDED_COLS));
+    const bottom = rows ? 90 + rows * ADDED_ROW : 0;
+    boardSvg.setAttribute("viewBox",
+      "0 0 " + CANVAS_W + " " + Math.max(CANVAS_H, bottom + 30));
+  }
+
+  function drawPart(info) {
+    const side = sideOfPart(info);
+    const onBus = info.attach === "i2c";
+    let col, row;
+    if (onBus) {
+      col = 0; row = SLOT.bus++;              // the bus column, nearest the board
+    } else if (side === "right") {
+      col = 1; row = SLOT.right++;            // beside it, clear of the trunk
+    } else {
+      const n = SLOT.left++;
+      col = n % ADDED_COLS; row = Math.floor(n / ADDED_COLS);
+    }
+    const x = (side === "left" ? LEFT_X0 : RIGHT_X0) + col * ADDED_PITCH;
+    const y = 90 + row * ADDED_ROW;
+
+    const g = svgEl("g", {});
+    const names = info.labels || [info.label];
+
+    const signalPins = info.pinNames || [];
+    const busPins = info.busPins || [];
+    const wired = signalPins.length ? signalPins : busPins;
+    const bus = info.attach === "i2c";
+    const edgeX = side === "left" ? x + 136 : x + 44;
+
+    // Build the part first, so its legs are known before the wires are drawn.
+    // A wire ends at the leg it would be soldered to, not at the edge of the
+    // box.
+    const bodyNode = partBody(info, names, x, y);
+    const legPts = bodyNode.__legs || [];
+    const signalLegs = legPts.slice(0, Math.max(0, legPts.length - 1));
+    const commonLeg = legPts.length ? legPts[legPts.length - 1] : null;
+    const boardEdge = side === "left" ? 120 + BOARD_DX : 650 + BOARD_DX;
+    const outward = side === "left" ? -1 : 1;
+
+    // The channel this part's wires run down. Bus devices share one trunk.
+    const lane = bus ? 0 : 1 + (SLOT[side] % 9);
+    const channel = boardEdge + outward * (12 + lane * 11);
+    const ink = bus ? "#6a3d9a"
+                    : WIRE_COLOURS[ADDED.indexOf(info) % WIRE_COLOURS.length];
+
+    // Wires live in their own group. The tracing aid dims other parts' wiring,
+    // and if the lamps were in here too, pressing a switch would fade the very
+    // LED you pressed it to watch.
+    const wireG = svgEl("g", {"class": "wires"});
+    g.appendChild(wireG);
+
+    // Out of the hole into the gap between two rows, then into the channel,
+    // down, across, and the last short run into the leg itself.
+    //
+    // The step into the gap matters. Leaving the hole horizontally runs the
+    // wire straight through the pin's own name, which sits 14px to the inner
+    // side, and the wire's halo then erases the very label that says which pin
+    // this is. Rows are 21px apart, so a wire 11px above or below the hole
+    // clears this row and the next.
+    function route(from, to, colour, dashed, note) {
+      const gap = 11;
+      const exitY = from.y + (to.y < from.y ? -gap : gap);
+      const d = "M" + from.x + " " + from.y
+              + " V" + exitY + " H" + channel + " V" + to.y + " H" + to.x
+              + (to.legY !== undefined ? " V" + to.legY : "");
+      wireG.appendChild(svgEl("path", {d: d, stroke: "#f2f6fa",
+        "stroke-width": dashed ? 4 : 4.5, fill: "none",
+        "stroke-linejoin": "round", "stroke-linecap": "round"}));
+      const w = svgEl("path", {d: d, stroke: colour,
+        "stroke-width": dashed ? 1.6 : 2, fill: "none",
+        "stroke-linejoin": "round", "stroke-linecap": "round"});
+      if (dashed) w.setAttribute("stroke-dasharray", "5 4");
+      if (note) w.appendChild(svgEl("title", {}, note));
+      wireG.appendChild(w);
+    }
+
+    let drewAny = false;
+    if (bus) {
+      // One stub from the bus trunk into this sensor. The trunk itself is
+      // drawn once, so several sensors do not draw a pair of lines each to the
+      // same two holes. A breakout's legs are VCC, GND, SDA, SCL, so the bus
+      // lands on SDA.
+      if (pinPos[busPins[0]]) {
+        drewAny = true;
+        const leg = legPts[2] || signalLegs[0] || {x: edgeX, y: y + 40};
+        const d = "M" + channel + " " + (leg.y + 16) + " H" + leg.x + " V" + leg.y;
+        wireG.appendChild(svgEl("path", {d: d, stroke: "#f2f6fa",
+          "stroke-width": 4.5, fill: "none", "stroke-linecap": "round"}));
+        const w = svgEl("path", {d: d, stroke: "#6a3d9a", "stroke-width": 2,
+          fill: "none", "stroke-linecap": "round", "stroke-dasharray": "5 4"});
+        w.appendChild(svgEl("title", {}, tr("wire.i2c")));
+        wireG.appendChild(w);
+      }
+    } else {
+      wired.forEach((name, i) => {
+        const at = pinPos[name];
+        if (!at) return;
+        drewAny = true;
+        const leg = signalLegs[i] || signalLegs[signalLegs.length - 1];
+        const to = leg ? {x: leg.x, y: leg.y + 12 + i * 4, legY: leg.y}
+                       : {x: edgeX, y: y + 40};
+        route({x: at.x + BOARD_DX, y: at.y}, to, ink, false, tr("wire.drives", [name]));
+      });
+    }
+
+    // The return path, dashed and labelled: Renode models no ground at all, so
+    // this is what the circuit needs on a bench rather than something being
+    // simulated.
+    //
+    // Only drawn to a GND hole on this side of the board. Reaching across to
+    // the other side would draw a wire straight through the middle of the
+    // drawing, over the package and every pin label on the way; the part's
+    // caption says which connector the ground is on instead.
+    const sameSide = GND_POS.filter(q => q.side === side);
+    let gndNote = null;
+    if (drewAny && sameSide.length) {
+      const gnd = sameSide[0];
+      // On a breakout the ground leg is the second one, marked GND, not the
+      // last.
+      const gLeg = bus ? (legPts[1] || commonLeg) : commonLeg;
+      const gto = gLeg ? {x: gLeg.x, y: gLeg.y + 26, legY: gLeg.y}
+                       : {x: edgeX, y: y + 84};
+      route({x: gnd.x + BOARD_DX, y: gnd.y}, gto, "#5c6773", true, tr("wire.gnd"));
+    } else if (drewAny && GND_POS.length) {
+      gndNote = tr("wire.gndOther", [GND_POS[0].conn]);
+    }
+
+    g.appendChild(bodyNode);
+    g.appendChild(svgEl("text", {x: x + 90, y: y + 118, "text-anchor": "middle",
+      "font-size": "10", "font-weight": "700", "font-family": "Consolas,monospace",
+      fill: "#0b2d4d"}, info.kind));
+    g.appendChild(svgEl("text", {x: x + 90, y: y + 130, "text-anchor": "middle",
+      "font-size": "9", "font-family": "Consolas,monospace", fill: "#5c7893"},
+      info.pins || info.path));
+
+    let extra = [];
+    if (!drewAny && wired.length) extra.push(tr("part.noHole"));
+    if (gndNote) extra.push(gndNote);
+    if (extra.length) {
+      g.appendChild(svgEl("text", {x: x + 90, y: y + 142, "text-anchor": "middle",
+        "font-size": "9", "font-family": "Consolas,monospace", fill: "#a0522d"},
+        extra.join(" · ")));
+    }
+    addedParts.appendChild(g);
+  }
+
+  // The I2C bus, drawn once. Every sensor sits on the same two wires, so a line
+  // per sensor to each hole would be several lines converging on one corner and
+  // saying nothing. A trunk with a stub each is how a shared bus is drawn.
+  function drawBusTrunk() {
+    const sensors = ADDED.filter(q => q.attach === "i2c");
+    if (!sensors.length) return;
+    const holes = (sensors[0].busPins || []).map(n => pinPos[n]).filter(Boolean);
+    if (!holes.length) return;
+    const channel = 650 + BOARD_DX + 10;
+    const bottom = 90 + (sensors.length - 1) * ADDED_ROW + 60;
+    const gg = svgEl("g", {"class": "wires"});
+    for (const h of holes) {
+      const d = "M" + (h.x + BOARD_DX) + " " + h.y + " H" + channel;
+      gg.appendChild(svgEl("path", {d: d, stroke: "#f2f6fa", "stroke-width": 4.5,
+        fill: "none", "stroke-linecap": "round"}));
+      gg.appendChild(svgEl("path", {d: d, stroke: "#6a3d9a", "stroke-width": 2,
+        fill: "none", "stroke-linecap": "round", "stroke-dasharray": "5 4"}));
+    }
+    const top = Math.min.apply(null, holes.map(h => h.y));
+    const trunk = "M" + channel + " " + top + " V" + Math.max(bottom, top + 40);
+    gg.appendChild(svgEl("path", {d: trunk, stroke: "#f2f6fa", "stroke-width": 6,
+      fill: "none", "stroke-linecap": "round"}));
+    const t = svgEl("path", {d: trunk, stroke: "#6a3d9a", "stroke-width": 3,
+      fill: "none", "stroke-linecap": "round", "stroke-dasharray": "6 4"});
+    t.appendChild(svgEl("title", {}, tr("wire.bus")));
+    gg.appendChild(t);
+    addedParts.appendChild(gg);
+  }
+
+  // ---- what the simulation is not doing -----------------------------------
+  // The rows come from the plugin, which reads divergences.json. The page keeps
+  // no copy, so it cannot fall out of step with the register or the sweep.
+  function divergenceNote(info) {
+    const rows = info.divergences || [];
+    if (!rows.length) return null;
+    const d = document.createElement("div");
+    d.style.cssText = "margin-top:6px;padding:6px 8px;border-left:3px solid #c8a24a;"
+                    + "background:#fdf8ec;font-size:11px;line-height:1.5;color:#5a4a22";
+    const head = document.createElement("b");
+    head.textContent = tr("div.heading");
+    d.appendChild(head);
+    for (const r of rows) {
+      const item = document.createElement("div");
+      item.style.marginTop = "3px";
+      const what = document.createElement("b");
+      what.textContent = rowText(r, "board");
+      item.appendChild(document.createTextNode("· "));
+      item.appendChild(what);
+      const sim = document.createElement("div");
+      sim.style.color = "#7a6a42";
+      sim.textContent = tr("div.renode", [rowText(r, "renode")]);
+      item.appendChild(sim);
+      d.appendChild(item);
+    }
+    return d;
+  }
+
+  // The ones that make wrong code look right, listed once for the whole board
+  // rather than only beside a part somebody happens to have added.
+  function showTraps() {
+    const rows = divergences.filter(d => d.hides_mistake);
+    const box = document.getElementById("traps");
+    const body = document.getElementById("traps-body");
+    box.hidden = rows.length === 0;
+    body.innerHTML = "";
+    if (!rows.length) return;
+    const lead = document.createElement("p");
+    lead.textContent = tr("traps.body");
+    body.appendChild(lead);
+    for (const r of rows) {
+      const p = document.createElement("p");
+      p.style.marginTop = "6px";
+      p.textContent = "· " + rowText(r, "renode");
+      body.appendChild(p);
+    }
+  }
+
+  // ---- the panel ----------------------------------------------------------
+  const LED_STATE = {};
+
+  // Every drawing of this LED, wherever it is. A lamp appears on its pin and
+  // again as the part itself, and a redraw replaces those elements -- so
+  // holding one of them and toggling that is exactly how the board comes to
+  // disagree with the firmware. Asking the document each time cannot go stale.
+  function ledParts(name) {
+    return document.querySelectorAll('[data-led="' + name + '"]');
+  }
+
+  function setLed(name, on) {
+    LED_STATE[name] = on;
+    ledParts(name).forEach(el => el.setAttribute("visibility", on ? "visible" : "hidden"));
+    const sw = document.getElementById("sw-" + cssId(name));
+    if (sw) sw.style.background = on ? (COLOURS[name] || "#e8443a") : "#f4f7fa";
+    const txt = document.getElementById("txt-" + cssId(name));
+    if (txt) txt.textContent = on ? tr("led.on") : tr("led.off");
+  }
+
+  // A redraw builds every lamp dark, so without this a part added while an LED
+  // is lit leaves that lamp dark until the firmware next changes it.
+  function restoreLeds() {
+    for (const name in LED_STATE) setLed(name, LED_STATE[name]);
+  }
+
+  // What each switch was last reported to be doing. A redraw builds every
+  // switch up, so without this a button held down while a part is added
+  // springs back on screen while the simulator still has it pressed.
+  const BUTTON_STATE = {};
+
+  function setButton(name, pressed) {
+    BUTTON_STATE[name] = pressed;
+    for (const v of BUTTON_VIEWS) if (v.name === name) v.show(pressed);
+  }
+
+  const SENSOR_VALUES = {};
+
+  function setSensor(key, value) {
+    SENSOR_VALUES[key] = value;
+    const shown = Number(value);
+    const text = isNaN(shown) ? value : shown.toFixed(2);
+    const id = SENSOR_FIELDS[key];
+    if (id) { const el = document.getElementById(id); if (el) el.textContent = text; }
+    const chip = document.getElementById("chip-" + cssId(key));
+    if (chip) chip.textContent = text;
+  }
+
+  // ---- the picker ---------------------------------------------------------
+  function setCatalogue(cat) {
+    catalogue = cat;
+    kindSel.innerHTML = "";
+    const groups = {};
+    for (const k of Object.keys(cat)) (groups[cat[k].cat] = groups[cat[k].cat] || []).push(k);
+    for (const c of ["Output", "Input", "Sensor"]) {
+      if (!groups[c]) continue;
+      const og = document.createElement("optgroup");
+      og.label = tr("cat." + c);
+      for (const k of groups[c]) {
+        const o = document.createElement("option");
+        o.value = k;
+        o.textContent = (LANG === "ja" && cat[k].label_ja) || cat[k].label || k;
+        og.appendChild(o);
+      }
+      kindSel.appendChild(og);
+    }
+    syncWhere();
+  }
+
+  // What "Where" means depends on what was picked. A part on the I2C bus has
+  // nowhere to choose -- the bus is already on PB8 and PB9 and its address does
+  // the routing -- so the control says where it will go instead of pretending
+  // to offer a choice.
+  function syncWhere() {
+    const entry = catalogue[kindSel.value];
+    if (!entry) return;
+    addWhat.textContent = entry.what || "";
+
+    if (entry.attach === "i2c") {
+      pinSel.hidden = true;
+      locHint.textContent = tr("where.i2c", [entry.address]);
+      return;
+    }
+
+    pinSel.hidden = false;
+    pinSel.innerHTML = "";
+    const free = Object.keys(pins).filter(n => {
+      const p = pins[n];
+      return !p.occupant && !p.reserved && p.label;
+    }).sort((a, b) => {
+      // In connector order, so the list reads down the board rather than
+      // alphabetically -- PB10 does not belong between PB1 and PB2.
+      const ia = ORDER.indexOf(a), ib = ORDER.indexOf(b);
+      return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+    });
+    if (!free.length) {
+      locHint.textContent = tr("where.nofree");
+      return;
+    }
+    for (const n of free) {
+      const o = document.createElement("option");
+      o.value = n;
+      o.textContent = tr("where.option", [pins[n].label, n, pins[n].header]);
+      pinSel.appendChild(o);
+    }
+    locHint.textContent = tr("where.pin");
+  }
+
+  // Pin names in the order the connectors bring them out.
+  let ORDER = [];
+  function rebuildOrder() {
+    ORDER = [];
+    for (const [, , rows] of connectors)
+      for (const [, pin] of rows) if (pin) ORDER.push(pin);
+  }
+
+  // ---- redrawing ----------------------------------------------------------
+  // Everything drawn from live data is rebuilt together, in one function, and
+  // then the state the simulator last reported is painted back over it.
+  //
+  // It is one function because the pieces are not independent. The pin grid
+  // carries a lamp for each output pin and a press target for each input one;
+  // the parts beside the board carry the same lamps and the same targets
+  // again. Redrawing either half on its own left BUTTON_VIEWS holding entries
+  // for elements that were no longer in the document, so a press lit a switch
+  // nobody could see while the one on screen stayed up.
+  function redraw() {
+    BUTTON_VIEWS.length = 0;
+    drawPins();          // draws the board's own parts too
+    renderOnboard();
+    renderAdded();
+    restoreLeds();
+    for (const name in BUTTON_STATE) setButton(name, BUTTON_STATE[name]);
+    for (const key in SENSOR_VALUES) setSensor(key, SENSOR_VALUES[key]);
+    fitCanvas();
+  }
+
+  // ---- the list of added parts --------------------------------------------
+  function renderAdded() {
+    addedParts.innerHTML = "";
+    addedList.innerHTML = "";
+    SLOT.left = 0; SLOT.right = 0; SLOT.bus = 0;
+    addedCard.hidden = ADDED.length === 0;
+    addedEmpty.setAttribute("visibility", ADDED.length ? "hidden" : "visible");
+    addedEmpty.textContent = tr("board.addedEmpty");
+    addedSummary.textContent = tr("added.count", [ADDED.length]);
+    drawBusTrunk();
+    for (const info of ADDED) drawAddedPart(info);
+  }
+
+  function removeButton(info) {
+    const b = document.createElement("button");
+    b.textContent = tr("remove.button");
+    b.title = tr("remove.title", [info.kind]);
+    b.style.cssText = "float:right;margin:0 0 0 8px;padding:1px 8px;width:auto;"
+                    + "font-size:11px;background:#fff;color:#8a3128;"
+                    + "border:1px solid #d9a49c;border-radius:4px;cursor:pointer";
+    // Inside a <summary>, a click would also open or close the part. Stop it,
+    // for the pointer and for the keyboard.
+    const go = e => {
+      e.stopPropagation();
+      e.preventDefault();
+      b.disabled = true;
+      b.textContent = tr("remove.removing");
+      send("remove|" + info.label);
+    };
+    b.addEventListener("click", go);
+    b.addEventListener("keydown", e => { if (e.key === " " || e.key === "Enter") go(e); });
+    return b;
+  }
+
+  function drawAddedPart(info) {
+    const names = info.labels || [info.label];
+
+    // Each part collapses on its own, because a few parts with several
+    // readings each pushed everything else off the screen. The summary carries
+    // the name and the pins, so the list is readable closed.
+    const box = document.createElement("details");
+    box.className = "part";
+    box.style.marginBottom = "10px";
+    const head = document.createElement("summary");
+    const name = document.createElement("span");
+    name.textContent = (info.handWired ? tr("part.handWired") : info.kind)
+                     + " · " + (info.pins || info.path || "");
+    head.appendChild(name);
+    head.appendChild(removeButton(info));
+    box.appendChild(head);
+
+    if (info.attach === "gpio-out") {
+      for (const n of names) {
+        const row = document.createElement("div");
+        row.style.cssText = "font-family:Consolas,monospace;font-size:12px";
+        const sw = document.createElement("span");
+        sw.className = "swatch";
+        sw.id = "sw-" + cssId(n);
+        row.appendChild(sw);
+        row.appendChild(document.createTextNode(" " + n + " "));
+        const txt = document.createElement("span");
+        txt.id = "txt-" + cssId(n);
+        txt.textContent = "—";
+        row.appendChild(txt);
+        box.appendChild(row);
+      }
+    } else if (info.attach === "gpio-in") {
+      for (const n of names) {
+        const b = document.createElement("button");
+        b.style.marginBottom = "4px";
+        b.textContent = tr("control.hold", [n]);
+        bindHold(b, n);
+        box.appendChild(b);
+      }
+    } else {
+      for (const pr of info.props || []) {
+        const prop = pr[0], lo = pr[1], hi = pr[2], unit = pr[3] || "";
+        const key = info.path + "." + prop, id = "dyn-" + cssId(key);
+        SENSOR_FIELDS[key] = id;
+
+        const label = document.createElement("label");
+        label.className = "sensor";
+        const cap = document.createElement("span");
+        cap.appendChild(document.createTextNode(prop + " "));
+        const b = document.createElement("b");
+        b.id = id;
+        b.textContent = "—";
+        cap.appendChild(b);
+        cap.appendChild(document.createTextNode(" " + unit));
+        label.appendChild(cap);
+
+        // A slider only where the part's datasheet gives a range and the unit
+        // is known. Where it does not, a plain number box: a slider labelled
+        // with a guessed unit teaches something false.
+        const input = document.createElement("input");
+        if (lo !== null && hi !== null) {
+          input.type = "range";
+          input.min = lo; input.max = hi; input.step = "1";
+          input.value = Math.round((lo + hi) / 2);
+        } else {
+          input.type = "number";
+          input.step = "1";
+        }
+        input.dataset.key = key;
+        input.setAttribute("aria-label", prop + " " + info.label);
+        input.addEventListener("input", () => {
+          if (input.value !== "") send("sensor|" + key + "|" + input.value);
+        });
+        label.appendChild(input);
+        box.appendChild(label);
+      }
+
+      // Said where the reading is set, once per sensor. Rebuilding reloads
+      // the firmware, which resets every peripheral; the plugin puts these
+      // back afterwards. Worth saying because nobody expects rebuilding a
+      // program to change the value they are testing it against, and this is
+      // the one exercise where somebody edits code and a reading together.
+      if ((info.props || []).length) {
+        const kept = document.createElement("p");
+        kept.className = "status";
+        kept.style.color = "#5c7893";
+        kept.style.margin = "6px 0 0";
+        kept.textContent = tr("build.kept");
+        box.appendChild(kept);
+      }
+    }
+
+    const note = divergenceNote(info);
+    if (note) box.appendChild(note);
+    addedList.appendChild(box);
+    drawPart(info);
+  }
+
+  // ---- the board's own parts, in the panel --------------------------------
+  function renderOnboard() {
+    onboardList.innerHTML = "";
+    for (const name in onboard) {
+      const part = onboard[name];
+      const row = document.createElement("div");
+      row.style.cssText = "font-family:Consolas,monospace;font-size:12px;margin-bottom:8px";
+      if (part.kind === "LED") {
+        const sw = document.createElement("span");
+        sw.className = "swatch";
+        sw.id = "sw-" + cssId(name);
+        row.appendChild(sw);
+        row.appendChild(document.createTextNode(" " + name + " " + (part.pin || "") + " "));
+        const txt = document.createElement("span");
+        txt.id = "txt-" + cssId(name);
+        txt.textContent = "—";
+        row.appendChild(txt);
+      } else {
+        const b = document.createElement("button");
+        b.textContent = tr("control.hold", [name + " " + (part.pin || "")]);
+        bindHold(b, name);
+        row.appendChild(b);
+      }
+      row.title = part.what || "";
+      onboardList.appendChild(row);
+
+      const note = divergenceNote(part);
+      if (note) onboardList.appendChild(note);
+    }
+  }
+
+  // ---- socket -------------------------------------------------------------
+  let ws = null, retryDelay = 1000;
+  const RETRY_MAX = 30000;
+
+  function dataSocketUrl() {
+    const given = new URLSearchParams(location.search).get("data");
+    if (given) return given;
+    const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+    const port = window.VIS_DATA_PORT || 9001;
+    return scheme + "//" + (location.hostname || "localhost") + ":" + port;
+  }
+
+  function connect() {
+    wsState.textContent = tr("ws.connecting");
+    ws = new WebSocket(dataSocketUrl());
+    ws.onopen = () => { wsState.textContent = tr("ws.connected"); retryDelay = 1000; };
+    ws.onmessage = (e) => {
+      const b = e.data.split("|"), type = b[0], subject = b[1], value = b[2];
+      if (type === "PINS") {
+        try { pins = JSON.parse(subject); syncWhere(); redraw(); } catch (err) {}
+      } else if (type === "CONNECTORS") {
+        try { connectors = JSON.parse(subject); rebuildOrder(); redraw(); }
+        catch (err) {}
+      } else if (type === "CATALOGUE") {
+        try { setCatalogue(JSON.parse(subject)); redraw(); } catch (err) {}
+      } else if (type === "ONBOARD") {
+        try { onboard = JSON.parse(subject); redraw(); }
+        catch (err) {}
+      } else if (type === "DIVERGENCES") {
+        try { divergences = JSON.parse(subject); showTraps(); } catch (err) {}
+      } else if (type === "LED") {
+        setLed(subject, value === "True" || value === "true");
+      } else if (type === "BUTTON") {
+        setButton(subject, value === "True" || value === "true");
+      } else if (type === "SENSOR") {
+        setSensor(subject, value);
+      } else if (type === "UART") {
+        uartChars.push(value);
+        if (uartChars.length > 4000) uartChars = uartChars.slice(-2000);
+        paintUart();
+      } else if (type === "ADDED") {
+        onAdded(subject, b.slice(2).join("|"));
+      } else if (type === "REMOVED") {
+        onRemoved(subject);
+      } else if (type === "REFUSED") {
+        addStatus.textContent = tr("status.refused", [subject]);
+        addStatus.className = "status warn";
+      } else if (type === "EXERCISES") {
+        try { setExercises(JSON.parse(subject)); } catch (err) {}
+      } else if (type === "ENVIRONMENT") {
+        let text = "";
+        try { text = JSON.parse(b.slice(2).join("|")); } catch (err) {}
+        onEnvironment(subject, text);
+      } else if (type === "BUILDING") {
+        onBuilding();
+      } else if (type === "FETCHING") {
+        onFetching();
+      } else if (type === "CAN_FETCH") {
+        onCanFetch(subject);
+      } else if (type === "BUILT_FROM") {
+        try { onBuiltFrom(JSON.parse(b.slice(2).join("|"))); } catch (err) {}
+      } else if (type === "BUILD") {
+        // The output is the last field and it is JSON, which can itself
+        // contain the separator -- gcc says `||` about ordinary C. Everything
+        // after the third one is rejoined before parsing, as ADDED does.
+        let text = "";
+        try { text = JSON.parse(b.slice(3).join("|")); } catch (err) {}
+        onBuilt(subject, value, text);
+      } else if (type === "VERSION") {
+        document.getElementById("plugin-version").textContent = subject;
+      } else if (type === "READY") {
+        redraw();
+      }
+    };
+    ws.onclose = () => {
+      wsState.textContent = tr("ws.reconnecting");
+      setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, RETRY_MAX);
+    };
+    ws.onerror = () => { ws.close(); };
+  }
+
+  function send(m) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(m); }
+
+  // The serial panel, including when there is nothing in it.
+  function paintUart() {
+    if (uartChars.length) {
+      uartBox.classList.remove("empty");
+      uartBox.textContent = uartChars.join("");
+      uartBox.scrollTop = uartBox.scrollHeight;
+    } else {
+      uartBox.classList.add("empty");
+      uartBox.textContent = tr("serial.empty");
+    }
+  }
+  paintUart();
+
+  function onAdded(label, payload) {
+    let info;
+    try { info = JSON.parse(payload); } catch (err) { return; }
+    if (ADDED.some(p => p.label === info.label)) return;   // a replay on reconnect
+    ADDED.push(info);
+    addStatus.textContent = tr("status.added", [label, info.pins || ""]);
+    addStatus.className = "status good";
+    // The whole board is redrawn rather than this one part appended, because
+    // the pin it sits on has just changed state and its hole has to be
+    // recoloured. The pin map is asked for again for the same reason.
+    redraw();
+    send("refresh");
+  }
+
+  function onRemoved(label) {
+    const i = ADDED.findIndex(p => p.label === label);
+    if (i >= 0) ADDED.splice(i, 1);
+    redraw();
+    addStatus.textContent = tr("status.removed", [label]);
+    addStatus.className = "status good";
+  }
+
+  // One place that makes a thing hold-to-press, by pointer or by keyboard.
+  //
+  // A native button is not enough on its own: pressing Enter on one fires
+  // click, never mousedown, so a keyboard user could hold nothing. Every
+  // hold-to-press control in this page goes through here.
+  function bindHold(el, target, label) {
+    const t = target || "";
+    const press = () => send("press|" + t);
+    const release = () => send("release|" + t);
+    el.addEventListener("mousedown", press);
+    el.addEventListener("mouseup", release);
+    el.addEventListener("mouseleave", release);
+    el.addEventListener("touchstart", e => { e.preventDefault(); press(); });
+    el.addEventListener("touchend", e => { e.preventDefault(); release(); });
+    el.addEventListener("keydown", e => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); press(); }
+    });
+    el.addEventListener("keyup", e => {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); release(); }
+    });
+    el.addEventListener("blur", release);
+    // An SVG shape is not a control until it says so; an HTML button already is.
+    if (el.tagName !== "BUTTON") {
+      el.setAttribute("tabindex", "0");
+      el.setAttribute("role", "button");
+      if (label) el.setAttribute("aria-label", tr("pin.switch", [label]));
+    }
+    return el;
+  }
+
+  kindSel.addEventListener("change", syncWhere);
+  // ---- the environment the course was started in ---------------------------
+
+  const ENV_SAYS = {
+    READY:      ["env.ready", "good"],
+    INCOMPLETE: ["env.incomplete", "warn"],
+    UNCHECKED:  ["env.unchecked", "warn"]
+  };
+
+  function onEnvironment(token, text) {
+    const says = ENV_SAYS[token] || ENV_SAYS.UNCHECKED;
+    envState.textContent = tr(says[0]);
+    envState.className = "status " + says[1];
+    envOutput.textContent = text || "";
+    envDetails.hidden = !text;
+    // Open when something is wrong, closed when nothing is. A learner on a
+    // working machine does not need the tool list, and a panel of it already
+    // open on arrival reads as something wanting attention.
+    envDetails.open = token !== "READY";
+    envCard.hidden = false;
+  }
+
+  // ---- building an exercise ------------------------------------------------
+
+  // What the board is running. null means the setup self-test, which is what
+  // board.resc loads and therefore what a learner sees before they have built
+  // anything. Saying so matters because exercise 1 is also a blinking LED: a
+  // board blinking on arrival, unlabelled, reads as the course having run code
+  // the learner has not written yet.
+  let nowRunning = null;
+
+  function showRunning() {
+    buildRunning.textContent = tr("build.running",
+      [nowRunning === null ? tr("build.selftest") : nowRunning]);
+  }
+
+  function setExercises(names) {
+    const keep = buildPick.value;
+    buildPick.textContent = "";
+    for (const name of names) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      buildPick.appendChild(option);
+    }
+    // The list comes from the repository, so it can gain an exercise this page
+    // predates. Keeping the selection means a rebuild after that does not
+    // silently move to a different one.
+    if (names.indexOf(keep) !== -1) buildPick.value = keep;
+    buildBtn.disabled = names.length === 0;
+    fetchBtn.disabled = names.length === 0 || !canFetch;
+  }
+
+  // Each outcome's sentence. The plugin sends a token and never prose: it has
+  // no Japanese in it, and this is the only side that knows which language is
+  // being shown.
+  const BUILD_SAYS = {
+    BUILT:           ["build.built", "good"],
+    DID_NOT_COMPILE: ["build.failed", "warn"],
+    COULD_NOT_BUILD: ["build.blocked", "warn"],
+    REFUSED_UNKNOWN: ["build.unknown", "warn"],
+    REFUSED_BUSY:    ["build.busy", "warn"],
+    LOADED:               ["build.loaded", "good"],
+    REFUSED_NOT_FIRMWARE: ["build.notfirmware", "warn"],
+    REFUSED_NOTHING_INSIDE: ["build.nothinginside", "warn"],
+    REFUSED_NO_CREDENTIAL: ["build.nocredential", "warn"],
+    REFUSED_NO_RUN:        ["build.norun", "warn"],
+    REFUSED_NO_PUSH:       ["build.nopush", "warn"],
+    REFUSED_NEVER_BUILT:   ["build.neverbuilt", "warn"],
+    REFUSED_FETCH_FAILED:  ["build.fetchfailed", "warn"]
+  };
+
+  function onBuilding() {
+    // Disabled here as a courtesy. The guarantee is the plugin's: this page
+    // cannot disable a button in another tab, and the plugin refuses a second
+    // build whatever any page believes.
+    buildBtn.disabled = true;
+    fetchBtn.disabled = true;
+    buildOutcome.textContent = tr("build.building");
+    buildOutcome.className = "status";
+    buildOutput.hidden = true;
+    buildOutput.textContent = "";
+  }
+
+  function onFetching() {
+    buildBtn.disabled = true;
+    fetchBtn.disabled = true;
+    buildOutcome.textContent = tr("build.fetching");
+    buildOutcome.className = "status";
+    buildOutput.hidden = true;
+  }
+
+  function onBuiltFrom(info) {
+    // CI builds what was pushed, and a working tree is almost always ahead.
+    // Saying which commit is on the board is the difference between a
+    // learner debugging their own code and debugging yesterday's.
+    const said = [tr("build.from", [(info.commit || "?")])];
+    if (!info.matches) said.push(tr("build.notyours"));
+    buildFrom.textContent = said.join("  ");
+    buildFrom.className = info.matches ? "status" : "status warn";
+    buildFrom.hidden = false;
+  }
+
+  function onCanFetch(answer) {
+    canFetch = (answer === "yes");
+    fetchBtn.disabled = !canFetch;
+    fetchNote.textContent = canFetch ? "" : tr("build.nocredential");
+    fetchNote.hidden = canFetch;
+  }
+
+  function onBuilt(name, token, text) {
+    buildBtn.disabled = false;
+    fetchBtn.disabled = !canFetch;
+    const says = BUILD_SAYS[token] || BUILD_SAYS.COULD_NOT_BUILD;
+    buildOutcome.textContent = tr(says[0]);
+    buildOutcome.className = "status " + says[1];
+
+    // All of it, scrolled to the top. The line that needs changing is not
+    // reliably the first one reported -- a missing semicolon is blamed on the
+    // line after it -- so nothing here filters, truncates or reorders.
+    buildOutput.textContent = text || "";
+    buildOutput.hidden = !text;
+    buildOutput.scrollTop = 0;
+
+    if (token === "BUILT") {
+      nowRunning = name;
+      showRunning();
+      buildFrom.hidden = true;     // their own code; no commit to name
+    } else if (token === "LOADED") {
+      nowRunning = name;
+      showRunning();
+    }
+  }
+
+  const dropZone = document.getElementById("drop-zone");
+  const dropFile = document.getElementById("drop-file");
+
+  function handOver(file) {
+    if (!file || !buildPick.value) return;
+    buildOutcome.textContent = tr("build.sending");
+    buildOutcome.className = "status";
+    buildOutput.hidden = true;
+    // Disabled while it travels, and re-enabled by the outcome arriving on
+    // the websocket -- the same path a build's outcome takes.
+    buildBtn.disabled = true;
+    fetch("/firmware?exercise=" + encodeURIComponent(buildPick.value),
+          { method: "POST", body: file })
+      .then((answer) => { if (!answer.ok) throw new Error(answer.status); })
+      .catch(() => {
+        buildBtn.disabled = false;
+        buildOutcome.textContent = tr("build.sendfailed");
+        buildOutcome.className = "status warn";
+      });
+  }
+
+  dropFile.addEventListener("change", () => {
+    handOver(dropFile.files[0]);
+    dropFile.value = "";          // so the same file can be sent twice
+  });
+
+  for (const name of ["dragenter", "dragover"]) {
+    dropZone.addEventListener(name, (e) => {
+      e.preventDefault();
+      dropZone.classList.add("over");
+    });
+  }
+  for (const name of ["dragleave", "drop"]) {
+    dropZone.addEventListener(name, () => dropZone.classList.remove("over"));
+  }
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    handOver(e.dataTransfer.files[0]);
+  });
+
+  // A file dropped anywhere else would otherwise navigate away from the board
+  // view, which looks exactly like the page crashing.
+  for (const name of ["dragover", "drop"]) {
+    document.addEventListener(name, (e) => {
+      if (!dropZone.contains(e.target)) e.preventDefault();
+    });
+  }
+
+  fetchBtn.addEventListener("click", () => {
+    if (!buildPick.value || !canFetch) return;
+    // Only the name. Where it is fetched from comes from the learner's own
+    // clone, inside the plugin (ADR-0044).
+    send("fetch|" + buildPick.value);
+  });
+
+  buildBtn.addEventListener("click", () => {
+    if (!buildPick.value) return;
+    // Only the name. No path, no flags, nothing the plugin would have to
+    // parse: this port is reachable by any tab the learner has open.
+    send("build|" + buildPick.value);
+  });
+
+  showRunning();
+
+  document.getElementById("add-btn").addEventListener("click", () => {
+    const entry = catalogue[kindSel.value];
+    addStatus.textContent = tr("add.adding");
+    addStatus.className = "status";
+    send("add|" + kindSel.value + "|"
+         + ((entry && entry.attach === "i2c") ? "" : pinSel.value));
+  });
+
+  connect();
+</script>
+
+</body>
+</html>

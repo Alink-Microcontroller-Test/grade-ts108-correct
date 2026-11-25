@@ -1,0 +1,17 @@
+// A sensor for the setup self-test, and for nothing else.
+//
+// The self-test reads a real I2C device to prove that the learner's compiler
+// and their simulator work together on this board. It has to run before the
+// learner has opened the board view, so it cannot wait for them to add a
+// sensor from the palette -- which is how a sensor gets onto the board
+// everywhere else.
+//
+// This is layered on top of boards/nucleo_f401re.repl by verify/verify.resc
+// rather than declared in the board itself, because a real NUCLEO-F401RE
+// carries no sensor and the board description must not say otherwise.
+//
+// Address 0x40 is the real Si7021's 7-bit address, and the same one the
+// palette uses, so the self-test and the exercise talk to the same part.
+
+si7021: Sensors.SI70xx @ i2c1 0x40
+    model: Model.SI7021

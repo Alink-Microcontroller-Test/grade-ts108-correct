@@ -1,0 +1,41 @@
+// The parts exercise 4 asks you to add, brought by the check itself.
+//
+// WHY THE CHECK BRINGS THEM
+//
+// You add the sensor and the four LEDs in the board view, which writes them
+// into your own board.repl. That file stays on your machine and in your
+// repository; the grader takes only exercises/*/main.c from a submission, so
+// your board.repl never reaches it. A check that waited for your parts would
+// therefore never be able to look at anything on the grading side.
+//
+// So the check declares them here, at the pins and the address the exercise
+// fixes, and loads this on top of boards/nucleo_f401re.repl. The same thing
+// verify/sensor.repl does for the setup self-test, and for the same reason.
+//
+// This is NOT loaded when you run the board yourself. Your board is still
+// board.repl, and the parts on it are still the ones you put there.
+//
+// WHAT THIS MEANS FOR WHAT IS CHECKED
+//
+// Your firmware is checked; your wiring is not. Renode's I2C model never
+// reads the GPIO registers, so the clock enables, the alternate-function
+// mode and the open-drain output type cannot be verified here at all --
+// see 'pin-configuration-not-enforced' and 'open-drain-ignored' in
+// DIVERGENCES.md. Do the pin setup properly anyway: on a real board it is
+// the difference between working and not.
+
+si7021: Sensors.SI70xx @ i2c1 0x40
+    model: Model.SI7021
+
+led_d2: Miscellaneous.LED @ gpioPortA
+led_d3: Miscellaneous.LED @ gpioPortB
+led_d4: Miscellaneous.LED @ gpioPortB
+led_d5: Miscellaneous.LED @ gpioPortB
+
+gpioPortA:
+    10 -> led_d2@0
+
+gpioPortB:
+    3 -> led_d3@0
+    5 -> led_d4@0
+    4 -> led_d5@0

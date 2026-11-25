@@ -1,0 +1,126 @@
+{
+  "_about": [
+    "The manuals an exercise sends a learner to, and how to reach them. This",
+    "file is the only place their locations are written down. Each exercise's",
+    "page is generated from it, and so is the list in exercises/README.md.",
+    "",
+    "WHY LINKS AND NOT THE FILES. ST grants access to its documents 'solely",
+    "for your personal use', grants no right to sublicense to a third party,",
+    "and requires prior written permission to reproduce or distribute. A",
+    "repository handed to a client may not carry the PDFs. Size is not the",
+    "reason: all three total 8.93 MB against a 3.6 MB repository.",
+    "",
+    "WHY THE LISTING PAGE AND NOT THE PDF. st.com has no per-document pages:",
+    "a document title links straight to its PDF, and revision history exists",
+    "only on the last page of the PDF itself. So the destination is the",
+    "documentation listing page, where the learner finds the row. A PDF URL",
+    "carries its revision in the filename and rots when ST republishes, and",
+    "ST's terms list 'linked to another URL' among the restricted acts.",
+    "",
+    "HOW FAR A POINTER GOES. To the document, and no further. Per ADR-0003,",
+    "scaffolding may be generated and the substance a learner is sent to the",
+    "datasheet to find may not. Naming the document is scaffolding. Naming the",
+    "section, the register or the bit is the exercise. Nothing in this file",
+    "may name a chapter, a register or a value.",
+    "",
+    "THE TWO LANGUAGES ARE NOT MIRRORS, and they are navigated differently.",
+    "Checked by hand in a browser on 2026-11-13, because every earlier reading",
+    "came from archived HTML and two of the four facts below were wrong:",
+    "",
+    "  English pages   `Search documents by title` matches the document number,",
+    "                  so one box and one identifier reaches any of the three.",
+    "                  The Nucleo page lists FORTY user manuals, so this is the",
+    "                  only practical route to UM1724.",
+    "  Japanese page   the same box does NOT filter -- typing DS10086 or RM0368",
+    "                  leaves the whole list showing. But the Japanese page is",
+    "                  grouped into real sections by resource type, which the",
+    "                  English one is not, so it is navigated by section.",
+    "  DS10086         the Japanese listing shows no document number at all, and",
+    "                  the description stays English. Identify it by the row",
+    "                  ending 512KB Flash/96KB RAM; the other datasheet is a",
+    "                  256KB part.",
+    "  UM1724          absent from the Japanese Nucleo listing entirely, so the",
+    "                  Japanese edition sends the learner to the English page.",
+    "",
+    "RM0368 EXISTS IN JAPANESE. The reference manual -- the document a learner",
+    "spends the most time in -- is offered as a Japanese translation beside the",
+    "English one, on both locales' pages. An earlier note here said the PDFs",
+    "were English in every case; that was true of the datasheet and the board",
+    "manual and false of this one.",
+    "",
+    "exercises lists which exercises send a learner to this document, by",
+    "directory name, the same way divergences.json does."
+  ],
+  "documents": [
+    {
+      "id": "RM0368",
+      "title": "STM32F401xB/C and STM32F401xD/E reference manual",
+      "title_ja": "STM32F401xB/C および STM32F401xD/E リファレンスマニュアル",
+      "what_for": "The registers, bit by bit.",
+      "what_for_ja": "レジスタの詳細。ビット単位で記載されています。",
+      "exercises": [
+        "01-blink-with-a-delay",
+        "02-blink-from-a-timer",
+        "03-change-the-interval",
+        "04-read-the-sensor"
+      ],
+      "listing": {
+        "en": "https://www.st.com/en/microcontrollers-microprocessors/stm32f401/documentation.html",
+        "ja": "https://www.st.com/ja/microcontrollers-microprocessors/stm32f401/documentation.html"
+      },
+      "page": {
+        "en": "STM32F401 documentation",
+        "ja": "STM32F401 のドキュメントページ"
+      },
+      "find": {
+        "en": "type `RM0368` into **Search documents by title**",
+        "ja": "「リファレンスマニュアル」の節を開きます。RM0368 は 1 件で、日本語版（日の丸の付いた行）と英語版のどちらも選べます。日本語のページでは「タイトルで検索」は絞り込みません"
+      }
+    },
+    {
+      "id": "DS10086",
+      "title": "STM32F401xD/xE datasheet",
+      "title_ja": "STM32F401xD/xE データシート",
+      "what_for": "Pins, and which peripheral each one can be switched to.",
+      "what_for_ja": "ピンと、各ピンをどの周辺機能に切り替えられるか。",
+      "exercises": [
+        "04-read-the-sensor"
+      ],
+      "listing": {
+        "en": "https://www.st.com/en/microcontrollers-microprocessors/stm32f401/documentation.html",
+        "ja": "https://www.st.com/ja/microcontrollers-microprocessors/stm32f401/documentation.html"
+      },
+      "page": {
+        "en": "STM32F401 documentation",
+        "ja": "STM32F401 のドキュメントページ"
+      },
+      "find": {
+        "en": "type `DS10086` into **Search documents by title**",
+        "ja": "「データシート」の節を開きます。2 件あり、日本語のページには文書番号が表示されないため、説明が 512KB Flash/96KB RAM で終わる行を選びます。もう 1 件は 256KB の別品種です"
+      }
+    },
+    {
+      "id": "UM1724",
+      "title": "STM32 Nucleo-64 boards (MB1136) user manual",
+      "title_ja": "STM32 Nucleo-64 ボード（MB1136）ユーザマニュアル",
+      "what_for": "Which pin is which on the board's headers.",
+      "what_for_ja": "ボードのヘッダのどのピンがどれか。",
+      "exercises": [
+        "03-change-the-interval",
+        "04-read-the-sensor"
+      ],
+      "listing": {
+        "en": "https://www.st.com/en/evaluation-tools/stm32-nucleo-boards/documentation.html",
+        "ja": null
+      },
+      "page": {
+        "en": "STM32 Nucleo boards documentation",
+        "ja": null
+      },
+      "find": {
+        "en": "type `UM1724` into **Search documents by title**. The list holds forty user manuals, so looking down it is not practical",
+        "ja": "「Search documents by title」に UM1724 と入力します。この文書は日本語のページにないため、リンク先は英語のページです"
+      }
+    }
+  ]
+}

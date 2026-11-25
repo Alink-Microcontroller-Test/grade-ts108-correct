@@ -1,0 +1,58 @@
+:name: ST NUCLEO-F401RE with the board view
+:description: The board, your firmware, and a drawing of it in your browser.
+:
+: Run from the repository root:
+:
+:   renode --console board.resc
+:
+: then open http://localhost:8000
+:
+: By default it loads the setup self-test. To run your own program instead:
+:
+:   renode --console -e '$bin=@path/to/your.elf' -e 'i @board.resc'
+:
+: Single quotes, not double. In a shell, "$bin" is the shell's own variable
+: and expands to nothing before Renode ever sees it, leaving `=@path/...`,
+: which is not a command. Renode rejects it and abandons the whole line, so
+: this script never runs and nothing is loaded at all. The only clue is
+: `No such command or device: =`.
+:
+: This used to say the board came up running the self-test instead, without
+: saying so. Measured on 1.16.1: it does not come up. That silent failure is
+: real, but it belongs to a different mistake -- naming this script
+: positionally. `renode board.resc -e '$bin=...'` sets the variable too late,
+: and the board then does come up running the self-test rather than your
+: firmware, reporting nothing.
+
+$name?="NUCLEO-F401RE"
+
+using sysbus
+mach create $name
+
+: board.repl, not boards/nucleo_f401re.repl. The first inherits the second and
+: carries anything you added from the palette, so the board you drew and the
+: board your code runs on are one file.
+machine LoadPlatformDescription $ORIGIN/board.repl
+
+$bin?=$ORIGIN/verify/verify.elf
+
+macro reset
+"""
+    sysbus LoadELF $bin
+"""
+
+runMacro $reset
+
+: No sensor is given a starting value here, because the board has no sensor on
+: it: a real NUCLEO-F401RE carries none, so one is a part you add from the
+: palette in the board view. Once you have added one, its reading is yours to
+: set from the panel beside it.
+:
+: Whatever you set, it will read back slightly differently - 25 comes back as
+: 24.99. See the 'sensor-value-quantisation' row of divergences.json.
+
+i $ORIGIN/vis/vis_f401re.py
+
+serveVisualization 8000
+
+start

@@ -1,0 +1,14 @@
+// Your board.
+//
+// It starts as the plain NUCLEO-F401RE. Anything you add from the palette in
+// the board view is appended below, and this is the file that is loaded when
+// you run the simulation -- so the board you drew and the board your code runs
+// on are the same file rather than two descriptions that can drift apart.
+//
+// You can also edit this by hand. The board view reads what is here when it
+// starts, so a part you declare yourself is drawn like any other.
+//
+// Do not edit boards/nucleo_f401re.repl. That is the board itself, and it is
+// updated for everyone.
+
+using "boards/nucleo_f401re.repl"

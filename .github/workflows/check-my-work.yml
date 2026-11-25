@@ -1,0 +1,354 @@
+name: Check my work
+
+# For learners. Builds your exercises on a clean machine and tells you whether
+# they compile.
+#
+# THIS IS NOT YOUR GRADE. You can edit this file -- it is in your repository --
+# so nothing here is trusted as an assessment. Your teacher's own run is what
+# counts. This exists so you can check that your code builds somewhere other
+# than your own laptop, which catches the case where it only works for you
+# because of a file you never committed.
+#
+# IT RUNS ON EVERY PUSH, and you can also start it by hand from the Actions
+# tab -> Check my work -> Run workflow.
+#
+# It used to be by hand only, and the reason given was cost: "running this on
+# every push would spend about 2,000 Actions minutes a month across the
+# course, which is the entire free allowance." That figure was never measured
+# and it is wrong in a way worth recording, because the same mistake is easy
+# to repeat.
+#
+# Measured 2026-11-02 from the only run that had ever succeeded: 29 seconds
+# end to end -- 2 seconds to check out, 15 to fetch the compiler on a cache
+# miss, 2 to build all four exercises. GitHub bills per job rounded up, so a
+# push costs ONE minute. At the course's own assumption of 15 pushes a
+# learner a month that is 1,500 minutes for a hundred learners, about $9 --
+# not an allowance, a rounding error on a training budget. At the two
+# learners enrolled today it is about 30 minutes a month.
+#
+# What the old reasoning got right is that your own machine is faster. What
+# it missed is that a learner who has just pushed is not at their machine
+# running builds -- they are waiting to hear something. This is the only part
+# of the course that can answer in under a minute, so it answers.
+#
+# WHAT IT CANNOT TELL YOU. It compiles; it does not simulate. There is no
+# Renode here, so each exercise's check.py exits 2 -- "could not be
+# attempted" -- and this workflow reports that as neither a pass nor a
+# failure of your code. Whether your program BEHAVES correctly, and the
+# assistant's comment about it, both come from your teacher's own run and
+# arrive in this repository's Issues.
+
+# BRANCHES ONLY, AND TAGS DELIBERATELY NOT.
+#
+# A bare `push:` fires on tag pushes as well as branch pushes, and the
+# course creates one tag per passing build -- `passed/<exercise>` -- when
+# it publishes the firmware as a release on this repository. A token
+# belonging to a GitHub App starts workflows where the automatic
+# GITHUB_TOKEN would not, so that tag started this check.
+#
+# Measured on 2026-11-02, before this filter existed: a learner who had
+# just passed exercise 01 got a run of this workflow against
+# `ref=passed/01-blink-with-a-delay`, which cost a billed minute nobody
+# asked for and showed them a red cross in their Actions tab moments
+# after being told they had passed. The failure was real -- their later
+# exercises were still unfinished, as their own pushes to main also
+# reported -- which makes it worse rather than better: the run looked
+# like a consequence of passing.
+#
+# `'**'` is every branch and no tag.
+on:
+  push:
+    branches:
+      - '**'
+  workflow_dispatch:
+
+# A learner iterating pushes several times in a few minutes -- measured, up
+# to six graded submissions in a day -- and only the newest push is worth an
+# answer. Cancelling the superseded run saves its minutes and, more
+# importantly, stops an older result arriving after a newer one and reading
+# as the newer one.
+#
+# Keyed on the ref so work on two branches does not cancel across them.
+concurrency:
+  group: check-my-work-${{ github.ref }}
+  cancel-in-progress: true
+
+# Enough to read this repository and nothing else. A workflow you can edit
+# must never reach anything beyond the repository it runs in -- but it does
+# have to read that one, because the first thing it does is check it out.
+#
+# This said `permissions: {}` until 2026-10-29, and that is not "no access
+# where none is needed": it is no access where some is required. On a private
+# repository it leaves actions/checkout with a token that cannot read the
+# repository, and git reports `Repository not found` -- GitHub's answer for
+# private-and-invisible, which reads like the repository is missing rather
+# than like a permission is. The run died at the first of seven steps and
+# built nothing, in every learner's repository, and nobody had run it.
+#
+# contents: read hands a learner nothing. They already have write access to
+# their own repository; a read-only token on it grants no capability they
+# did not already have. What matters is that it ends there.
+permissions:
+  contents: read
+  # Writes ONE thing: a comment on your own Issue, when a request was
+  # refused because today's allowance is spent. Without it that refusal
+  # reaches nobody -- nothing is dispatched, so the course never learns
+  # you asked, and your Issue stays silent.
+  #
+  # This is the workflow's built-in token, scoped to this repository
+  # alone. It reaches no other repository and gives the workflow nothing
+  # you do not already have here. ADR-0042 records why that makes it a
+  # different question from the grading credential in ADR-0041.
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The key names the runner image. GitHub began moving
+      # `ubuntu-latest` to Ubuntu 26 on 2026-10-19, and without this the
+      # compiler cached under one operating system is handed to the next
+      # one. It happened to work across that migration -- measured on the
+      # teacher's identical cache on 2026-11-02 -- but a binary that
+      # cannot find the glibc it was linked against fails at run time,
+      # and this workflow would report that to you as your code not
+      # compiling.
+      #
+      # The operating system is read from the machine, not from a
+      # variable. This said `${{ env.ImageOS }}` for one commit and the
+      # key came out as `course-tools--gcc14.2`: the `env` context in a
+      # workflow expression sees only what the workflow itself declares,
+      # never what the runner has in its own environment. The key stayed
+      # consistent, so the cache went on working while no longer naming
+      # the image at all -- which is the exact failure the note above was
+      # written to catch, caught on the first run after the change.
+      #
+      # /etc/os-release is the thing that matters rather than a proxy for
+      # it: `ubuntu24.04`, `ubuntu26.04`, and it is what the cached
+      # compiler has to be compatible with.
+      - name: Which runner image is this?
+        id: image
+        run: |
+          . /etc/os-release
+          echo "id=${ID}${VERSION_ID}" >> "$GITHUB_OUTPUT"
+          echo "runner image: ${ID}${VERSION_ID}"
+
+      - name: Cache the toolchain
+        id: tools
+        uses: actions/cache@v6
+        with:
+          path: /opt/course-tools
+          key: course-tools-${{ steps.image.outputs.id }}-gcc14.2
+
+      - name: Fetch the compiler
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          sudo mkdir -p /opt/course-tools && sudo chown "$USER" /opt/course-tools
+          curl -sfL -o /tmp/g.tar.xz \
+            https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi.tar.xz
+          tar -xJf /tmp/g.tar.xz -C /opt/course-tools --strip-components=1
+
+      - name: Build every exercise
+        run: |
+          # The default shell here is `bash -e`, and everything below reads
+          # an exit code with `case "$?"` AFTER the command has run. Under
+          # -e the shell is already gone: the first non-zero exit kills the
+          # step, and none of the branches that classify it ever execute.
+          #
+          # That is not a theoretical reading. Run 40833787081 compiled
+          # 01-blink-with-a-delay, then its check.py exited 2 for want of a
+          # simulator -- the case this file calls "deliberately not a
+          # failure" -- and the step died on the spot with exit code 2.
+          # Exercises 02 to 04 were never built.
+          #
+          # So errexit is off, deliberately, and every command's status is
+          # handled below instead. The step's own result is the `failed`
+          # flag it ends with, which is the whole point of the branches.
+          set +e
+
+          export PATH="/opt/course-tools/bin:$PATH"
+          failed=0
+          checks=0
+          skipped=0
+          for dir in exercises/*/; do
+            name=$(basename "$dir")
+            # The build says which kind of failure it had, the same way the
+            # checks below do. Exit 2 means it could not be attempted at
+            # all, and saying "does not compile" to that is telling
+            # somebody their code is wrong because our toolchain is.
+            #
+            # Still a failure of this run, because nothing was built and a
+            # green tick would say otherwise.
+            #
+            # The title does NOT claim whose fault it is. Exit 2 has more
+            # than one cause: the toolchain download above failing, which
+            # is ours, and a file saved in the wrong encoding, which is
+            # theirs and which tools/check_encoding.py reports by name and
+            # byte. It used to say "this is not your code", which was a
+            # lie to the one learner who most needed to read the message.
+            # So it points at the message instead of guessing.
+            bash tools/build.sh "$dir" > /tmp/out.txt 2>&1
+            case "$?" in
+              0) echo "::notice title=$name::compiles" ;;
+              2) echo "::error title=$name::could not be built — read the message below, which says why and whether it is yours to fix."
+                 sed -n '1,25p' /tmp/out.txt
+                 failed=1
+                 continue ;;
+              *) echo "::error title=$name::does not compile"
+                 sed -n '1,25p' /tmp/out.txt
+                 failed=1
+                 continue ;;
+            esac
+
+            # An exercise may ship a behaviour check. It needs the simulator,
+            # which is NOT installed here -- this workflow only fetches the
+            # compiler, because downloading Renode on every manual run would
+            # cost far more Actions time than it is worth. So these report
+            # "not checked" here, which they say themselves by exiting 2.
+            #
+            # Exit 2 is deliberately not a failure. The other reason a check
+            # exits 2 is a correct program that simulates too slowly to
+            # watch, and telling somebody their working code is broken is
+            # the worst thing this file could do.
+            if [ -f "$dir/check.py" ]; then
+              python3 "$dir/check.py" --elf "$dir/firmware.elf" \
+                > /tmp/check.txt 2>&1
+              case "$?" in
+                0) checks=$((checks + 1))
+                   echo "::notice title=$name::behaves as expected" ;;
+                2) skipped=$((skipped + 1)) ;;
+                *) checks=$((checks + 1))
+                   echo "::error title=$name::compiled, but did not behave as expected"
+                   sed -n '1,30p' /tmp/check.txt
+                   failed=1 ;;
+              esac
+            fi
+          done
+          echo
+          if [ "$checks" -eq 0 ]; then
+            echo "Checked that each exercise compiles. Nothing here ran your"
+            echo "program, so compiling is not the same as working — run it"
+            echo "yourself in the simulator to see what it does."
+            if [ "$skipped" -gt 0 ]; then
+              echo
+              echo "($skipped exercise(s) ship a behaviour check, which needs"
+              echo "the simulator. Run those on your own machine:"
+              echo "  python3 exercises/<name>/check.py --elf exercises/<name>/firmware.elf)"
+            fi
+          fi
+          if [ "$failed" -eq 0 ]; then
+            echo "Everything compiles."
+          else
+            echo "Something does not compile. The errors are above, and the"
+            echo "same errors appear when you build on your own machine."
+          fi
+          exit "$failed"
+
+      # KEEPING WHAT THIS RUN JUST BUILT.
+      #
+      # The step above compiles every exercise and the runner is then thrown
+      # away, so until now that binary existed for about a minute. The only
+      # build a learner could reach afterwards was a Release, and `deliver.py`
+      # publishes one when an exercise PASSES -- which is when they need it
+      # least. This keeps the rest.
+      #
+      # `if: always()` for the same reason the step below has it, and here it
+      # is the whole point of using an artifact rather than a Release: the
+      # push worth fetching a binary from is usually one that did not work.
+      # The build above exits non-zero to report that, so without this
+      # condition the step would be skipped on exactly those runs.
+      #
+      # Seven days because what anybody asks for is the build of a recent
+      # push. The default is ninety, which would hold builds nobody will ever
+      # want, against a quota the free plan limits.
+      #
+      # One artifact holding all four rather than four artifacts: whatever
+      # fetches it unpacks an archive either way, so picking one file out of
+      # four is free, and four would mean restructuring the loop above.
+      #
+      # `if-no-files-found: ignore` because nothing compiling is a real
+      # outcome, not an error in this step. There is then no artifact, and
+      # whatever asks for one is told there is no build rather than shown a
+      # failure.
+      #
+      # No permission is added for this. upload-artifact uses the runner's own
+      # token rather than GITHUB_TOKEN, so the `contents: read` above is
+      # enough -- checked rather than assumed, because getting it wrong would
+      # be a red workflow on every learner's push.
+      - name: Keep the firmware this run built
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: firmware
+          path: exercises/*/firmware.elf
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # ASKING THE COURSE TO GRADE THIS, IF YOU HAVE SWITCHED THAT ON.
+      #
+      # Pushing runs the check above and nothing else. Being graded --
+      # simulated, judged, answered on your Issue -- happens because you
+      # asked, either by using "Ask for feedback" in the Actions tab or
+      # by committing an empty `.grade-on-push` file to be asked for
+      # automatically from then on. The file is yours: add it when you
+      # want every push judged, delete it when you do not.
+      #
+      # `if: always()` so that code which does NOT compile is still sent.
+      # That looks backwards and is deliberate: the check above gives you
+      # compiler errors, and grading gives you a written explanation on
+      # your Issue, and somebody stuck on a compiler error is exactly who
+      # needs the second one.
+      #
+      # `continue-on-error: true` so that a problem reaching the course
+      # never turns a passing check red. What that would tell you is
+      # "your code is wrong", which would be a lie. The step says what
+      # happened through annotations instead, which show in the run
+      # summary without changing its result.
+      #
+      # THIS STEP ADDS NO BILLED TIME. The job is already running and
+      # GitHub bills it per job rounded up to the minute, so the request
+      # -- and, when your allowance is used up, the refusal -- is free.
+      # That is the whole reason the counting happens here rather than in
+      # the course's repository, where saying no would cost a minute.
+      - name: Ask for feedback
+        if: always()
+        continue-on-error: true
+        env:
+          # Reaches `Actions: write` on the course's repository and
+          # nothing else -- it cannot read a byte of content there, so it
+          # cannot reach anybody's solutions. Print it if you like;
+          # ADR-0041 says what that gets you, which is the ability to
+          # start the grading runs you can already start.
+          GITHUB_TOKEN: ${{ secrets.COURSE_GRADE_TRIGGER }}
+          # A SECOND credential, under its own name because the line above
+          # has taken GITHUB_TOKEN. This one reaches this repository's
+          # Issues and nothing else; that one reaches the course and
+          # nothing else. Neither can do the other's job.
+          LEARNER_REPO_TOKEN: ${{ github.token }}
+        run: |
+          # `|| ec=$?` rather than `set -e`, because a non-zero exit here
+          # must be reported, not just propagated. The tool annotates its
+          # own crashes (see say_something_even_if_this_crashed) and exits
+          # 0 after doing so, so a non-zero code reaching here means the
+          # program could not START -- a syntax error, a failed import, no
+          # interpreter -- and nothing inside it was running to say so.
+          #
+          # Measured on 2026-11-06: a SyntaxError in this file killed the
+          # step, `continue-on-error` kept the check green, and the learner
+          # was told nothing at all. That is the exact silence this course
+          # is supposed to have stopped having.
+          ec=0
+          python3 tools/ask_for_feedback.py             --owner "${{ github.repository_owner }}"             --learner "${{ github.event.repository.name }}" || ec=$?
+          if [ "$ec" -ne 0 ]; then
+            echo "::warning title=Feedback::The course could not be asked for feedback (the tool exited $ec before it could run). Your code was still checked above. The course sweeps twice a day, so this work will be graded even if nobody acts."
+          fi
+          # Report AND propagate. Reporting without propagating was tried
+          # for about a minute and is wrong: this `if` always succeeds, so
+          # it made the step green. On the button workflow, which has no
+          # `continue-on-error`, red is the honest colour -- the learner
+          # pressed a button and it did not work. On the push workflow
+          # `continue-on-error` keeps the job green anyway, so this only
+          # restores the step's own result, which it had before the guard.
+          exit $ec

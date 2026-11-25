@@ -1,0 +1,108 @@
+// ST NUCLEO-F401RE
+//
+// Renode ships no platform for this board, so this file narrows the generic
+// STM32F4 platform down to the real part and adds the board-level wiring.
+//
+// The generic platform is a superset of the F401RE: it sizes its memories for
+// a larger device, declares a core without a floating-point unit, and carries
+// peripherals this chip does not have. Overriding can correct the first two.
+// It cannot remove the third, so what remains wrong is recorded in
+// divergences.json rather than fixed here.
+//
+// Requires the Renode version pinned in versions.json. This file inherits a
+// description maintained upstream, so the simulator version is part of the
+// board's definition rather than merely part of the toolchain.
+
+using "platforms/cpus/stm32f4.repl"
+
+// --- Corrections to the generic F4 platform -------------------------------
+
+// STM32F401RE has 512 KB of flash. The generic platform declares 2 MB, which
+// would let a program overrun the real device with nothing reported.
+flash:
+    size: 0x80000
+
+// STM32F401RE has 96 KB of SRAM. The generic platform declares 256 KB.
+sram:
+    size: 0x18000
+
+// The F401 core has a single-precision floating-point unit. The generic
+// platform declares a core without one, which faults on hard-float code.
+cpu:
+    cpuType: "cortex-m4f"
+
+// --- Clocks ---------------------------------------------------------------
+//
+// THESE FREQUENCIES ARE DECLARED, NOT DERIVED. Renode does not compute
+// peripheral clocks from the RCC and PLL registers, so whatever a program
+// programmes into the clock tree, these values are what the timers use.
+//
+// They are set to the rates a real F401RE reaches in the standard 84 MHz
+// configuration, so that prescaler and reload values correctly derived from
+// the reference manual produce the interval the datasheet says they should.
+// Left at the platform's 10 MHz default, a correctly calculated one second
+// period would run 8.4 times too fast, and the learner would reasonably
+// conclude their arithmetic was wrong.
+//
+// This makes the model useful, not accurate. See ADR-0013, and the
+// 'static-timer-clocks' and 'declared-clock-rate' rows of divergences.json.
+
+nvic:
+    systickFrequency: 84000000
+
+// Only the timers the F401RE actually has are corrected. The generic platform
+// also declares TIM6, TIM7, TIM8, TIM12, TIM13 and TIM14, which this device
+// does not carry; they are left alone and recorded as a divergence.
+timer1:
+    frequency: 84000000
+
+timer2:
+    frequency: 84000000
+
+timer3:
+    frequency: 84000000
+
+timer4:
+    frequency: 84000000
+
+timer5:
+    frequency: 84000000
+
+timer9:
+    frequency: 84000000
+
+timer10:
+    frequency: 84000000
+
+timer11:
+    frequency: 84000000
+
+// --- Board wiring ---------------------------------------------------------
+
+// LD2, the green user LED, is on PA5.
+led: Miscellaneous.LED @ gpioPortA
+
+gpioPortA:
+    5 -> led@0
+
+// B1, the blue user button, is on PC13. It idles high and is pulled low when
+// pressed, so the signal is inverted relative to a plain active-high button.
+button: Miscellaneous.Button @ gpioPortC
+    -> gpioPortC@13
+    invert: true
+
+// --- External parts -------------------------------------------------------
+//
+// There are none, and that is deliberate. A real NUCLEO-F401RE carries two
+// LEDs, two buttons and the ST-LINK; no sensor, nothing on the I2C bus.
+//
+// This file used to declare an Si7021 on I2C1 so that the fourth exercise had
+// something to read. It meant every learner's board answered a sensor the
+// board in their hand does not have, and nothing said so until they tried the
+// same firmware on real hardware. A sensor is now a part the learner adds from
+// the board view's palette, which is what wiring one to the header actually
+// is. See 'si7021-not-fitted' in divergences.json.
+//
+// The setup self-test still needs a sensor to prove the I2C path works, and it
+// runs before a learner has opened anything. It brings its own: see
+// verify/sensor.repl.

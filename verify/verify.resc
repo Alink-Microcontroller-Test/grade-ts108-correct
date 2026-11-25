@@ -1,0 +1,32 @@
+: Setup self-test. Loads the board and the self-test firmware, gives the
+: sensor a known value, and runs long enough for the firmware to report.
+:
+: The check scripts run this and read the CHECK lines from the serial output.
+: Run it by hand with:
+:
+:   renode --console --disable-xwt verify/verify.resc
+
+mach create "verify"
+machine LoadPlatformDescription @boards/nucleo_f401re.repl
+
+: The board carries no sensor, because the real one does not. The self-test
+: needs one to prove the I2C path works, so it brings its own rather than
+: putting a part on everybody's board that is not on the board in their hand.
+machine LoadPlatformDescription @verify/sensor.repl
+
+showAnalyzer sysbus.usart2 Antmicro.Renode.Analyzers.LoggingUartAnalyzer
+
+sysbus LoadELF @verify/verify.elf
+
+: 25 degrees, so the firmware's reading can be compared against something
+: known. It will read back 24.99 - see the 'sensor-value-quantisation' row of
+: divergences.json.
+sysbus.i2c1.si7021 Temperature 25
+sysbus.i2c1.si7021 Humidity 50
+
+emulation RunFor "0.05"
+
+: Reported separately from the firmware's own output, because this is the
+: simulator's view of the pin rather than the program's view of the register.
+echo "CHECK ledstate"
+sysbus.gpioPortA.led State

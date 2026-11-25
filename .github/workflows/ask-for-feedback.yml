@@ -1,0 +1,112 @@
+name: Ask for feedback
+
+# THE BUTTON. Press this when you want the course to look at your work.
+#
+# Go to the Actions tab, choose "Ask for feedback" on the left, and press
+# "Run workflow". The course starts grading within seconds and usually
+# answers in two to three minutes, as a comment on your Issue.
+#
+# WHY THIS EXISTS SEPARATELY FROM "Check my work"
+# ------------------------------------------------
+# Pushing runs the compile check, which answers in about ten seconds and
+# tells you whether your code builds. That is not the same as being
+# graded: grading runs your program in a simulator, judges whether it
+# does what the exercise asked, and writes you an explanation.
+#
+# Grading is not done on every push because most pushes are not a
+# question. You are halfway through a change, or renaming a file, or
+# fixing a typo. You decide when the work is worth an answer.
+#
+# If you would rather be graded on every push, commit an empty
+# `.grade-on-push` file to this repository. Delete it to stop. It is
+# yours, it affects nobody else, and you can change your mind as often
+# as you like.
+#
+# YOU HAVE TEN A DAY. The allowance is per learner, it is not shared
+# with anybody, and it returns at midnight Japan time. Asking when you
+# have none left costs nothing and tells you so.
+#
+# THIS DOES NOT PUSH ANYTHING OR CHANGE YOUR CODE. It grades whatever is
+# on your default branch at the moment you press it, so commit and push
+# first if you want your newest work looked at.
+
+on:
+  workflow_dispatch:
+
+# A learner pressing the button twice while waiting should not send two
+# requests, and should not spend two of their ten. Cancelling the newer
+# one is the right way round here: the first request is already with the
+# course and will be answered.
+concurrency:
+  group: ask-for-feedback
+  cancel-in-progress: false
+
+# Nothing. This workflow checks the repository out to read one script and
+# does not read or write anything else -- not the code, not the Issues.
+#
+# `contents: read` rather than `{}` for the reason check-my-work.yml
+# records at length: on a private repository an empty permission set
+# leaves actions/checkout unable to read the repository it is in, and git
+# reports `Repository not found`, which reads like the repository is
+# missing rather than like a permission is.
+permissions:
+  contents: read
+  # Writes ONE thing: a comment on your own Issue, when a request was
+  # refused because today's allowance is spent. Without it that refusal
+  # reaches nobody -- nothing is dispatched, so the course never learns
+  # you asked, and your Issue stays silent.
+  #
+  # This is the workflow's built-in token, scoped to this repository
+  # alone. It reaches no other repository and gives the workflow nothing
+  # you do not already have here. ADR-0042 records why that makes it a
+  # different question from the grading credential in ADR-0041.
+  issues: write
+
+jobs:
+  ask:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # No toolchain is fetched and nothing is compiled, so this job is a
+      # few seconds long. It still bills one whole minute, because GitHub
+      # rounds every job up -- which is worth knowing before anybody
+      # suggests making it faster. There is nothing to win.
+      - name: Ask the course to grade this repository
+        env:
+          # `Actions: write` on the course's repository and nothing else.
+          # It cannot read content there, so it cannot reach anybody's
+          # reference solutions, the ledger or the roster (ADR-0041).
+          GITHUB_TOKEN: ${{ secrets.COURSE_GRADE_TRIGGER }}
+          # A SECOND credential, under its own name because the line above
+          # has taken GITHUB_TOKEN. This one reaches this repository's
+          # Issues and nothing else; that one reaches the course and
+          # nothing else. Neither can do the other's job.
+          LEARNER_REPO_TOKEN: ${{ github.token }}
+        run: |
+          # `|| ec=$?` rather than letting it propagate, because a
+          # non-zero exit has to be REPORTED. The tool annotates its own
+          # crashes (say_something_even_if_this_crashed) and exits 0
+          # after doing so, so a non-zero code reaching here means the
+          # program could not START -- a syntax error, a failed import,
+          # no interpreter -- and nothing inside it was running to say
+          # so.
+          #
+          # This workflow matters more than the push one for this: here
+          # the learner pressed a button and is waiting for an answer.
+          ec=0
+          python3 tools/ask_for_feedback.py \
+            --owner "${{ github.repository_owner }}" \
+            --learner "${{ github.event.repository.name }}" \
+            --by-hand || ec=$?
+          if [ "$ec" -ne 0 ]; then
+            echo "::warning title=Feedback::The course could not be asked for feedback (the tool exited $ec before it could run). The course sweeps twice a day, so this work will be graded even if nobody acts."
+          fi
+          # Report AND propagate. Reporting without propagating was tried
+          # for about a minute and is wrong: this `if` always succeeds, so
+          # it made the step green. On the button workflow, which has no
+          # `continue-on-error`, red is the honest colour -- the learner
+          # pressed a button and it did not work. On the push workflow
+          # `continue-on-error` keeps the job green anyway, so this only
+          # restores the step's own result, which it had before the guard.
+          exit $ec

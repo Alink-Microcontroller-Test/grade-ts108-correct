@@ -1,0 +1,40 @@
+# Line endings, decided here rather than by whoever cloned the repository.
+#
+# Without this file, a Windows clone with git's default core.autocrlf=true
+# converts every text file to CRLF on checkout -- including the shell scripts.
+# A shell script whose shebang ends in a carriage return cannot be run at all:
+# Linux looks for an interpreter literally named "/bin/sh\r", does not find
+# one, and reports
+#
+#     bash: ./tools/check-environment.sh: cannot execute: required file not found
+#
+# which names neither the script nor the line endings, and reads as the course
+# being broken on the first command it asks a learner to type inside the
+# container.
+#
+# What git stores has always been LF; the conversion happens on checkout, so
+# the repository looks correct to anyone inspecting it on Linux or macOS and
+# only Windows learners ever see it. That is the worst shape for a defect on
+# this course, because the people who would notice are not the people it
+# happens to.
+#
+# tests/sweep.py refuses a CR in any of these.
+
+# Everything is LF in the repository and LF on disk, whatever the platform.
+* text=auto eol=lf
+
+# ...except PowerShell, which is only ever read on Windows and is conventionally
+# CRLF there. Nothing in Linux parses these.
+*.ps1 text eol=crlf
+
+# Declared rather than left to git's guessing, because a file it guesses wrong
+# about is a file it corrupts. None of these are tracked today; they are listed
+# so that adding one later is safe.
+*.elf   binary
+*.bin   binary
+*.hex   binary
+*.png   binary
+*.jpg   binary
+*.pdf   binary
+*.xlsx  binary
+*.zip   binary

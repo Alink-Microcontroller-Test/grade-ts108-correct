@@ -1,0 +1,134 @@
+name: sweep
+
+# Everything runs inside the container, which means the container is exercised
+# on every push rather than only when somebody remembers. ADR-0014 makes it a
+# supported route because Intel Macs have no other one, and a supported route
+# nothing tests stops working silently.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sweep:
+    # Only in a course repository, never in a learner's copy. Learner
+    # repositories are generated from this one, so without this guard every
+    # learner would inherit this workflow and run a full container build on
+    # every push -- roughly 2,000 Actions minutes a month across a cohort,
+    # which is the whole free allowance, spent on maintainers' tests they
+    # have no use for.
+    #
+    # Matched by NAME, not by full path, because this repository exists twice:
+    # the live course and a rehearsal copy in a second organisation. Naming
+    # one organisation meant the rehearsal copy skipped every run from the day
+    # it was seeded -- eight runs, eight skips, found on 2026-10-09 -- so the
+    # organisation we rehearse enrolment and grading on was the one with no CI
+    # at all, and a skipped job is not a failure, so nothing said so.
+    #
+    # A learner's repository is named after their student id (S001), so it
+    # cannot match this.
+    if: endsWith(github.repository, '/nucleo-f401re')
+    runs-on: ubuntu-latest
+    steps:
+      # Full history, not the default depth of 1. The copy-drift check
+      # compares the commit the copy was synced at against this repository's
+      # history, and a shallow checkout does not contain it -- so the check
+      # reported "could not compare" on every run while the job stayed green,
+      # which is worse than not having it. Found on 2026-10-09 by reading the
+      # log of the first run that had the check in it.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Build the container
+        run: docker build -t nucleo-f401re:ci .
+
+      # 'bash -c', never 'bash -lc'. A login shell re-reads /etc/profile,
+      # replaces PATH, and hides both tools.
+      - name: The environment check must pass inside the container
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work nucleo-f401re:ci \
+            bash -c './tools/check-environment.sh'
+
+      # --exercise-checks builds each exercise's scaffolding and asserts its
+      # behaviour check REJECTS it. A check that passes whatever it is given
+      # would tell a learner their empty exercise is correct, and that is
+      # the one assertion we can make without shipping a solution -- which
+      # we never do, because the solution is the exercise.
+      - name: The divergence register, the board, and the exercise checks
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work nucleo-f401re:ci \
+            bash -c 'python3 tests/sweep.py --exercise-checks --renode /opt/renode_1.16.1-dotnet_portable/renode'
+
+      # Outside the container, because the download names need the network and
+      # the image has none.
+      #
+      # It used to need the runner for git as well. The image had none, so the
+      # mode check quietly skipped itself inside it -- which is how a guard
+      # becomes decoration. git was added to the image on 2026-10-20, because
+      # tools/check_encoding.py was being neutered the same way and the image
+      # is the standard route a learner builds by (ADR-0016). So the mode
+      # check now runs in both places, and this step is here for the network
+      # alone.
+      #
+      # The token is only to avoid the unauthenticated rate limit, which a
+      # shared runner's IP can already have exhausted; the endpoint is public.
+      #
+      # The sweep runs every check it has whatever it is invoked for,
+      # including the unit tests -- and the runner has no pytest. That failed
+      # every push from 2026-09-29, while steps 3 to 5 passed, so the
+      # container was blamed and fixed twice.
+      - name: File modes and download names, checked on the runner
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 -m pip install -q pytest
+          python3 tests/sweep.py --no-board --downloads
+
+  # SETUP.md recommends Podman over Docker Desktop, on the licence question,
+  # and until 2026-10-09 nothing had ever run it: CI used docker only, so the
+  # route we tell learners to prefer was the one route nobody had executed.
+  # "Identical except for the program name" was a claim, not a result.
+  #
+  # Its own job rather than more steps in the first one, so that a Podman-only
+  # failure is distinguishable at a glance from a course failure. The guard is
+  # repeated because a job without one runs in every learner's repository.
+  podman:
+    if: endsWith(github.repository, '/nucleo-f401re')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Not decoration. If a future runner image drops podman, this fails
+      # here with one clear line instead of inside a build.
+      - name: Podman is present, and this is the version that was tested
+        run: podman --version
+
+      - name: Build the image with podman
+        run: podman build -t nucleo-f401re:podman .
+
+      # 'bash -c', never 'bash -lc', for the reason the docker job gives: a
+      # login shell re-reads /etc/profile, replaces PATH, and hides both
+      # tools.
+      #
+      # The mount is written WITHOUT ':z', which is the command a learner on
+      # Windows, macOS or a Debian-family Linux types. The ':z' form is for
+      # SELinux on Fedora and RHEL; this runner does not enforce SELinux, so
+      # that variant is documented and reported by tools/check-container.sh
+      # rather than tested here. Saying which of the two was actually run
+      # matters more than implying both were.
+      - name: The environment check must pass inside the podman image
+        run: |
+          podman run --rm -v "$PWD:/work" -w /work nucleo-f401re:podman \
+            bash -c './tools/check-environment.sh'
+
+      # The bind mount is the one thing that genuinely differs between the
+      # two runtimes, so it is asserted rather than assumed: the container
+      # must be able to read a file from the mounted checkout and write one
+      # back into it.
+      - name: The mounted checkout is readable and writable from inside
+        run: |
+          podman run --rm -v "$PWD:/work" -w /work nucleo-f401re:podman \
+            bash -c 'head -1 versions.env && touch .podman-write-probe'
+          test -f .podman-write-probe
+          rm -f .podman-write-probe

@@ -1,0 +1,11 @@
+*.elf
+*.bin
+*.hex
+*.o
+*.map
+
+# Python bytecode. Running the sweep leaves these behind, and one was
+# committed by accident once.
+__pycache__/
+*.pyc
+.pytest_cache/
