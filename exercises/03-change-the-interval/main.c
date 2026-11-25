@@ -1,59 +1,77 @@
-/* Exercise 3 - change the blink interval with the user button.
+/* Reference solution B for exercise 3: the button changes the prescaler.
  *
- * B1, the blue button on the board, is connected to PC13.
+ * NOT FOR LEARNERS. See solutions/README.md and ADR-0027.
  *
- * Start from your exercise 2 code. When the button is pressed, the LED should
- * blink at a different rate. How you define that is up to you: two rates that
- * alternate, or a cycle through three, or fast while held.
+ * The reload value never moves. Released, the timer ticks at 10 kHz and the
+ * LED changes every half second; held, it ticks at 50 kHz and changes every
+ * tenth. Same observable behaviour as solution A by the other register, and
+ * a check that reads only ARR to decide whether the rate changed would pass
+ * A and fail this -- which is the defect this file is here to catch.
  *
- * What the exercise asks for, which registers it asks you to find, and the
- * two ways of noticing the button are on this exercise's page: README.md, or
- * README.ja.md. Read that first. The register names are given there; the
- * numbers are yours to find, because finding them is the exercise.
- *
- * ---------------------------------------------------------------------------
- * THE SIMULATOR WILL NOT CHECK YOUR PIN SETUP, ON EITHER PIN.
- *
- * Renode drives the LED from the output data register without consulting
- * the clock-enable bit or the mode register, and it reports the button
- * without either. So both halves of your pin configuration -- the output on
- * PA5 and the input on PC13 -- can be wrong or absent, and this exercise
- * will still behave correctly here and not at all on a real board.
- *
- * This exercise's check does not look at them either. Exercise 1's does;
- * this one judges the rate change and the timer. So on both pins, here,
- * nothing is looking.
- *
- * See 'pin-configuration-not-enforced' in DIVERGENCES.md.
- * ---------------------------------------------------------------------------
+ * It also reads the button through an interrupt rather than by polling, so
+ * the main loop is empty. EXTI 13 fires on both edges, which is what makes
+ * "while held" work from an event.
  */
 
 #include "stm32f401xe.h"
 
-static volatile uint32_t ticks = 0;
+#define LD2    5
+#define BUTTON 13
+
+#define SLOW_PRESCALER 8399U    /* 10 kHz; 5,000 ticks = 0.5 s */
+#define FAST_PRESCALER 1679U    /* 50 kHz; 5,000 ticks = 0.1 s */
+#define RELOAD         4999U
 
 void TIM2_IRQHandler(void)
 {
-    /* Clear the flag, toggle the LED -- as in exercise 2. */
+    TIM2->SR &= ~TIM_SR_UIF;
+    GPIOA->ODR ^= (1U << LD2);
+}
 
-    ticks++;
+void EXTI15_10_IRQHandler(void)
+{
+    if (EXTI->PR & (1U << BUTTON)) {
+        EXTI->PR = (1U << BUTTON);              /* write 1 to clear */
+
+        /* Pressed is low. Read the pin rather than counting edges: an edge
+         * that arrives while this handler runs would otherwise leave the
+         * rate disagreeing with the button for ever. */
+        if ((GPIOC->IDR & (1U << BUTTON)) == 0) {
+            TIM2->PSC = FAST_PRESCALER;
+        } else {
+            TIM2->PSC = SLOW_PRESCALER;
+        }
+        /* The prescaler is buffered: it loads at the next update event, and
+         * an update now is what makes the new rate start now. */
+        TIM2->EGR = TIM_EGR_UG;
+    }
 }
 
 int main(void)
 {
-    /* 1. Everything from exercise 2: GPIOA clock, PA5 output, TIM2 running
-     *    and interrupting once a second. */
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOCEN;
+    RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;       /* EXTI needs this */
 
-    /* 2. Turn on the clock for GPIO port C. */
+    GPIOA->MODER &= ~(3U << (LD2 * 2));
+    GPIOA->MODER |= (1U << (LD2 * 2));
+    GPIOC->MODER &= ~(3U << (BUTTON * 2));
 
-    /* 3. Make PC13 an input. */
+    /* Route EXTI line 13 to port C, and let it fire on press and release. */
+    SYSCFG->EXTICR[3] &= ~(0xFU << 4);
+    SYSCFG->EXTICR[3] |= (2U << 4);             /* 0010: port C */
+    EXTI->IMR |= (1U << BUTTON);
+    EXTI->FTSR |= (1U << BUTTON);
+    EXTI->RTSR |= (1U << BUTTON);
+    NVIC_EnableIRQ(EXTI15_10_IRQn);
 
-    while (1) {
-        /* 4. Read the button. Remember that pressed means the pin reads low.
-         *    If you poll, put a short delay between reads -- the page says
-         *    why, and it is not about being tidy. */
+    RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
+    TIM2->PSC = SLOW_PRESCALER;
+    TIM2->ARR = RELOAD;
+    TIM2->EGR = TIM_EGR_UG;
+    TIM2->SR &= ~TIM_SR_UIF;
+    TIM2->DIER |= TIM_DIER_UIE;
+    NVIC_EnableIRQ(TIM2_IRQn);
+    TIM2->CR1 |= TIM_CR1_CEN;
 
-        /* 5. When it is pressed, change the timer's reload value so the LED
-         *    blinks at a different rate. */
-    }
+    while (1) { }
 }

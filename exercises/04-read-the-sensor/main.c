@@ -1,117 +1,135 @@
-/* Exercise 4 - read a temperature sensor over I2C and show it on LEDs.
+/* Reference solution B for exercise 4: a level, and a table of LEDs.
  *
- * Read the temperature and show it across four LEDs, like a bar: colder
- * lights fewer, warmer lights more. You choose the thresholds, but put them
- * inside 0 to 45 degrees.
+ * NOT FOR LEARNERS. See solutions/README.md and ADR-0027.
  *
- * This exercise needs two parts that are not on the board, and it cannot run
- * until you have added them in the board view. What the exercise asks for,
- * what to add, and which registers it asks you to find are on this exercise's
- * page: README.md, or README.ja.md. Read that first. The register names are
- * given there; the numbers are yours to find, because finding them is the
- * exercise.
+ * Same sensor, same bus, different shape. Instead of four comparisons it
+ * works out how many LEDs should be lit -- one per ten degrees from five --
+ * and lights that many from a table. A check that expected particular
+ * thresholds, or that read the LEDs in a fixed order, would pass solution A
+ * and fail this one.
  *
- * ---------------------------------------------------------------------------
- * THREE THINGS THE SIMULATOR WILL NOT TELL YOU
- *
- * 1. OPEN DRAIN IS NOT CHECKED HERE. IT IS WHAT MAKES THE BUS WORK.
- *
- *    To reach the bus on a real board, PB8 and PB9 need four things: the
- *    GPIOB clock enabled, the pins put into alternate-function mode, the
- *    right alternate function selected, and open-drain output type. Miss any
- *    one of them and the bus does not work.
- *
- *    The check judges the first three. It reads the clock bit, the mode bits
- *    and the alternate function number back off the bus after your program
- *    has run, so getting one of those wrong fails here.
- *
- *    It cannot judge the fourth. A write to OTYPER is refused by the
- *    simulator and logged as unhandled, so there is nothing to read back.
- *    Open drain is also the one people get wrong even when they remember the
- *    rest: I2C works by devices pulling a shared line low and releasing it to
- *    float high, which push-pull outputs cannot do.
- *
- *    And the bus itself still does not care about any of it. Renode's I2C
- *    model never looks at the GPIO registers: firmware with *every* GPIOB
- *    write deleted still read the sensor correctly. A transfer that succeeds
- *    is not evidence that your pins are right -- the check is.
- *
- *    See 'pin-configuration-not-enforced' and 'open-drain-ignored' in
- *    DIVERGENCES.md.
- *
- * 2. THE VALUE YOU READ WILL NOT EXACTLY MATCH THE VALUE THAT WAS SET.
- *
- *    Set the sensor to 25.00 C in the board view and your program reads
- *    24.99 C. The model stores the value through a fixed-point conversion and
- *    a little is lost each way. Never compare a sensor reading with == ;
- *    compare against a range. Real sensors behave the same way, for their own
- *    reasons. See 'sensor-value-quantisation' in DIVERGENCES.md.
- *
- * 3. THE BUS IS EMPTY UNTIL YOU PUT SOMETHING ON IT.
- *
- *    This one the simulator does tell you, and it is here so you know that
- *    is deliberate. If you skip the board view and run this, every read
- *    fails, because there is nothing at the sensor's address -- the same as
- *    running it on a bare board. The sensor used to be declared for you,
- *    which meant this exercise passed on a board nobody had built. It no
- *    longer is. See 'si7021-not-fitted' in DIVERGENCES.md.
- * ---------------------------------------------------------------------------
+ * The bus is read into a buffer by a small helper that takes the number of
+ * bytes, rather than by a routine written around exactly two. Both are
+ * reasonable; neither should be the one a check insists on.
  */
 
 #include "stm32f401xe.h"
 
-#define SI7021_ADDRESS        0x40
-#define SI7021_MEASURE_TEMP   0xE3
+#define SI7021_ADDRESS      0x40
+#define SI7021_MEASURE_TEMP 0xE3
 
-/* Where the four LEDs you added sit. D2 is PA10; the rest are on port B. */
-/* D2 = PA10, D3 = PB3, D4 = PB5, D5 = PB4 */
+#define TIMEOUT 200000U
+#define BETWEEN_READINGS 90000U
 
-static void i2c_setup(void)
+/* The four LEDs the exercise asks for, coolest first. */
+static GPIO_TypeDef *const PORT[4] = { GPIOA, GPIOB, GPIOB, GPIOB };
+static const uint32_t PIN[4] = { 10U, 3U, 5U, 4U };
+
+static void wait(volatile uint32_t count)
 {
-    /* 1. Clocks for GPIO port B and for I2C1. */
-
-    /* 2. PB8 and PB9 to alternate function, open drain.
-     *    Open drain matters on hardware even though it does not here. */
-
-    /* 3. Tell I2C1 its input clock, its speed and its rise time, then
-     *    enable it. */
+    while (count--) { }
 }
 
-/* Returns the raw 16-bit reading, or 0 if the transfer did not complete. */
-static uint16_t si7021_read_raw(void)
+static void outputs(void)
 {
-    /* 4. start, address+write, command, repeated start, address+read,
-     *    two bytes, stop. */
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN;
+    for (uint32_t i = 0; i < 4; i++) {
+        PORT[i]->MODER &= ~(3U << (PIN[i] * 2));
+        PORT[i]->MODER |= (1U << (PIN[i] * 2));
+    }
+}
+
+static void bus(void)
+{
+    RCC->AHB1ENR |= RCC_AHB1ENR_GPIOBEN;
+    RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
+
+    GPIOB->MODER &= ~((3U << (8 * 2)) | (3U << (9 * 2)));
+    GPIOB->MODER |= (2U << (8 * 2)) | (2U << (9 * 2));
+    GPIOB->OTYPER |= (1U << 8) | (1U << 9);     /* open drain */
+    GPIOB->AFR[1] &= ~((0xFU << 0) | (0xFU << 4));
+    GPIOB->AFR[1] |= (4U << 0) | (4U << 4);     /* AF4 = I2C1 */
+
+    I2C1->CR1 = 0;
+    I2C1->CR2 = 42;                             /* APB1 = 42 MHz */
+    I2C1->CCR = 210;                            /* 100 kHz */
+    I2C1->TRISE = 43;
+    I2C1->CR1 |= I2C_CR1_PE;
+}
+
+static int wait_for(uint32_t flag)
+{
+    volatile uint32_t t;
+    for (t = 0; !(I2C1->SR1 & flag); t++)
+        if (t > TIMEOUT) return -1;
     return 0;
 }
 
-/* Raw reading to hundredths of a degree: T = 175.72 * raw / 65536 - 46.85 */
-static int32_t to_centidegrees(uint16_t raw)
+/* Write one command byte, then read `count` bytes back. */
+static int transfer(uint8_t command, uint8_t *into, uint32_t count)
 {
-    /* 5. Fixed point. 17572 is 175.72 scaled by 100; 4685 is 46.85 scaled
-     *    the same way. */
-    (void) raw;
+    if (I2C1->CR1 |= I2C_CR1_START, wait_for(I2C_SR1_SB) < 0) return -1;
+    I2C1->DR = (SI7021_ADDRESS << 1);
+    if (wait_for(I2C_SR1_ADDR) < 0) return -2;
+    (void) I2C1->SR2;
+
+    if (wait_for(I2C_SR1_TXE) < 0) return -3;
+    I2C1->DR = command;
+    if (wait_for(I2C_SR1_BTF) < 0) return -4;
+
+    I2C1->CR1 |= I2C_CR1_START;
+    if (wait_for(I2C_SR1_SB) < 0) return -5;
+    I2C1->DR = (SI7021_ADDRESS << 1) | 1U;
+    if (wait_for(I2C_SR1_ADDR) < 0) return -6;
+
+    if (count > 1) I2C1->CR1 |= I2C_CR1_ACK;
+    (void) I2C1->SR2;
+
+    for (uint32_t i = 0; i < count; i++) {
+        if (i + 1 == count) {
+            I2C1->CR1 &= ~I2C_CR1_ACK;
+            I2C1->CR1 |= I2C_CR1_STOP;
+        }
+        if (wait_for(I2C_SR1_RXNE) < 0) return -7;
+        into[i] = (uint8_t) I2C1->DR;
+    }
     return 0;
 }
 
-static void show_temperature(int32_t centidegrees)
+/* How many LEDs this temperature deserves: one per ten degrees from five. */
+static uint32_t level_for(int32_t centi)
 {
-    /* 6. Light more of your four LEDs the warmer it is. */
-    (void) centidegrees;
+    int32_t steps = (centi - 500) / 1000;
+    if (steps < 0) return 0;
+    if (steps > 3) return 4;
+    return (uint32_t) steps + 1;
+}
+
+static void light(uint32_t level)
+{
+    for (uint32_t i = 0; i < 4; i++) {
+        if (i < level) {
+            PORT[i]->ODR |= (1U << PIN[i]);
+        } else {
+            PORT[i]->ODR &= ~(1U << PIN[i]);
+        }
+    }
 }
 
 int main(void)
 {
-    /* 7. Set up the LED pins as outputs -- the board's own on PA5 and the
-     *    four you added. */
+    uint8_t reading[2];
 
-    i2c_setup();
+    outputs();
+    bus();
 
     while (1) {
-        uint16_t raw = si7021_read_raw();
-        show_temperature(to_centidegrees(raw));
-
-        /* 8. Wait a little before reading again. A sensor does not need
-         *    polling thousands of times a second. */
+        if (transfer(SI7021_MEASURE_TEMP, reading, 2) == 0) {
+            uint16_t raw = (uint16_t) ((reading[0] << 8) | reading[1]);
+            int32_t centi =
+                (int32_t) ((17572L * (int32_t) raw) / 65536L) - 4685;
+            light(level_for(centi));
+        }
+        wait(BETWEEN_READINGS);
     }
 }
